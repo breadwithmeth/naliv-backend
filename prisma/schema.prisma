@@ -1,0 +1,692 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  user_id       Int       @id @default(autoincrement())
+  name          String?   @db.VarChar(255)
+  first_name    String?   @db.VarChar(255)
+  last_name     String?   @db.VarChar(255)
+  date_of_birth DateTime? @db.Date
+  sex           Int?
+  login         String?   @db.VarChar(255)
+  password      String?   @db.VarChar(255)
+  log_timestamp DateTime? @default(now()) @db.Timestamp(0)
+  OneSignalId   String?   @db.VarChar(255)
+
+  @@map("users")
+}
+
+model additions {
+  addition_id       Int @id @default(autoincrement())
+  category_id       Int
+  addition_category Int
+}
+
+model aggregator_fetches {
+  fetch_id      Int      @id @default(autoincrement())
+  aggregator_id Int
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+}
+
+model aggregator_items {
+  relation_id        Int    @id @default(autoincrement())
+  item_id            Int
+  aggregator_id      Int
+  aggregator_item_id String @db.VarChar(30)
+  fetch_id           Int
+}
+
+model aggregators {
+  aggregator_id Int    @id @default(autoincrement())
+  name          String @db.VarChar(222)
+  extra_charge  Float
+}
+
+model bonus_cards {
+  bonus_card_id Int      @id @default(autoincrement())
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  user_id       Int
+  card_uuid     String   @db.VarChar(255)
+
+  @@index([bonus_card_id], map: "bonus_card_id")
+  @@index([user_id], map: "user_id")
+}
+
+model bonuses {
+  bonus_id        Int      @id @default(autoincrement())
+  organization_id Int
+  amount          Int
+  log_timestamp   DateTime @default(now()) @db.Timestamp(0)
+  user_id         Int
+}
+
+model brands {
+  brand_id    Int    @id @default(autoincrement())
+  name        String @db.VarChar(255)
+  description String @db.Text
+}
+
+model businesses {
+  business_id     Int      @id @default(autoincrement())
+  organization_id Int
+  name            String   @db.VarChar(255)
+  log_timestamp   DateTime @default(now()) @db.Timestamp(0)
+  description     String   @db.Text
+  lat             Float
+  lon             Float
+  city            Int
+  token           String   @db.VarChar(255)
+  address         String   @db.VarChar(255)
+  logo            String   @db.VarChar(255)
+  uuid            String   @db.VarChar(255)
+  img             String   @db.VarChar(255)
+  enabled         Int      @default(1)
+}
+
+model businesses_token {
+  token_id      Int      @id @default(autoincrement())
+  business_id   Int
+  token         String   @db.VarChar(255)
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+}
+
+model card_verify {
+  verify_id     Int      @id @default(autoincrement())
+  user_id       Int
+  user_uuid     String   @db.VarChar(255)
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  verify_uuid   String?  @db.VarChar(200)
+  halyk_uuid    String?  @db.VarChar(250)
+  card_uuid     String?  @db.VarChar(255)
+}
+
+model cart_items {
+  relation_id Int     @id @default(autoincrement())
+  cart_id     Int
+  item_id     Int
+  amount      Decimal @db.Decimal(10, 3)
+
+  @@index([relation_id, cart_id, item_id, amount], map: "relation_id")
+}
+
+model cart_items_options {
+  relation_id             Int @id @default(autoincrement())
+  cart_item_relation_id   Int
+  option_item_relation_id Int
+
+  @@index([relation_id, cart_item_relation_id, option_item_relation_id], map: "relation_id")
+}
+
+model carts {
+  cart_id       Int      @id @default(autoincrement())
+  user_id       Int
+  business_id   Int
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  status        Int      @default(0)
+  delivery_uuid String?  @db.VarChar(255)
+
+  @@index([cart_id], map: "cart_id")
+}
+
+model categories {
+  category_id     Int     @id @default(autoincrement())
+  name            String  @db.VarChar(255)
+  photo           String? @db.VarChar(255)
+  parent_category Int     @default(0)
+  img             String  @db.VarChar(255)
+  visible         Int     @default(1)
+
+  @@index([category_id], map: "category_id")
+  @@index([category_id], map: "category_id_2")
+  @@index([category_id], map: "category_id_3")
+  @@index([parent_category], map: "parent_category")
+}
+
+model chatdesk_messages {
+  message_id Int      @id @default(autoincrement())
+  text       String   @db.Text
+  channel_id Int
+  user_id    Int
+  client_id  Int
+  from_who   String   @db.VarChar(40)
+  timestamp  DateTime @db.Timestamp(0)
+}
+
+model cities {
+  city_id       Int                     @id @default(autoincrement())
+  name          String                  @db.VarChar(255)
+  x1            Float
+  y1            Float
+  x2            Float
+  y2            Float
+  delivery_type cities_delivery_type?
+  city_border   Unsupported("polygon")?
+}
+
+model collection_items {
+  relation_id   Int @id @default(autoincrement())
+  item_id       Int
+  collection_id Int
+}
+
+model collections {
+  collection_id Int    @id @default(autoincrement())
+  name          String @db.Text
+  business_id   Int
+}
+
+model countries_of_origin {
+  country_id Int    @id @default(autoincrement())
+  name       String @db.VarChar(255)
+}
+
+model courier_location {
+  location_id   Int                  @id @default(autoincrement())
+  log_timestamp DateTime             @db.Timestamp(0)
+  courier_id    Int
+  location      Unsupported("point")
+  city_id       Int
+}
+
+model courier_password {
+  password_id   Int      @id @default(autoincrement())
+  password      String   @db.VarChar(255)
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  courier_id    Int
+  is_used       Int      @default(0)
+}
+
+model courier_shifts {
+  shift_id   Int       @id @default(autoincrement())
+  courier_id Int
+  started_at DateTime? @db.Timestamp(0)
+  ended_at   DateTime? @db.Timestamp(0)
+}
+
+model courier_token {
+  token_id      Int      @id @default(autoincrement())
+  token         String   @db.VarChar(255)
+  courier_id    Int
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+}
+
+model couriers {
+  courier_id   Int     @id @default(autoincrement())
+  name         String? @db.VarChar(255)
+  full_name    String? @db.VarChar(255)
+  login        String? @db.VarChar(255)
+  password     String? @db.VarChar(255)
+  courier_type Int     @default(1)
+}
+
+model delivery_areas {
+  area_id         Int                    @id @default(autoincrement())
+  price           Decimal                @db.Decimal(10, 2)
+  pick_up_area_id Int
+  borders         Unsupported("polygon")
+}
+
+model delivery_distance {
+  delivery_distance_id Int      @id @default(autoincrement())
+  address_id           Int
+  business_id          Int
+  log_timestamp        DateTime @default(now()) @db.DateTime(0)
+  distance             Int
+}
+
+model delivery_rate_details {
+  detail_id       Int     @id @default(autoincrement())
+  rate_id         Int
+  condition_value Decimal @db.Decimal(10, 2)
+  type            String  @db.VarChar(30)
+  price           Decimal @db.Decimal(10, 2)
+}
+
+model delivery_rates {
+  delivery_rate_id    Int     @id @default(autoincrement())
+  city_id             Int
+  base_distance       Decimal @db.Decimal(10, 2)
+  base_distance_price Decimal @db.Decimal(10, 2)
+}
+
+model employee {
+  employee_id  Int     @id @default(autoincrement())
+  login        String  @db.VarChar(255)
+  password     String  @db.VarChar(255)
+  name         String? @db.VarChar(255)
+  access_level String? @default("OPERATOR") @db.VarChar(30)
+}
+
+model employee_tokens {
+  token_id      Int      @id @default(autoincrement())
+  token         String   @db.VarChar(255)
+  employee_id   Int
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([token], map: "token")
+  @@index([token_id], map: "token_id")
+}
+
+model halyk_saved_cards {
+  card_id       Int    @id @default(autoincrement())
+  user_id       Int
+  card_mask     String @db.VarChar(255)
+  halyk_card_id String @db.VarChar(255)
+}
+
+model items {
+  item_id         Int       @id @default(autoincrement())
+  name            String    @db.VarChar(255)
+  category_id     Int?      @default(0)
+  description     String?   @db.Text
+  brand_id        Int?
+  manufacturer_id Int?
+  type_id         Int?
+  business_id     Int?
+  country_id      Int?
+  code            String?   @db.VarChar(255)
+  visible         Int?      @default(0)
+  log_timestamp   DateTime? @default(now()) @db.Timestamp(0)
+  thumb           String?   @db.VarChar(255)
+  img             String?   @db.VarChar(255)
+  quantity        Decimal   @default(1.000) @db.Decimal(10, 3)
+  unit            String    @default("шт") @db.VarChar(20)
+  by_weight       Int       @default(0)
+  amount          Decimal?  @db.Decimal(10, 2)
+  price           Decimal?  @db.Decimal(10, 2)
+  barcode         String?   @db.VarChar(255)
+
+  @@index([brand_id], map: "brand_id")
+  @@index([business_id], map: "business_id")
+  @@index([business_id], map: "business_id_2")
+  @@index([category_id], map: "category_id")
+  @@index([category_id], map: "category_id_2")
+  @@index([category_id], map: "category_id_3")
+  @@index([item_id], map: "item_id")
+  @@index([item_id], map: "item_id_2")
+  @@index([manufacturer_id], map: "manufacturer_id")
+  @@index([name], map: "name_10")
+  @@index([name], map: "name_4")
+  @@index([name], map: "name_8")
+  @@fulltext([name], map: "name")
+  @@fulltext([name], map: "name_2")
+  @@fulltext([name], map: "name_3")
+  @@fulltext([name], map: "name_5")
+  @@fulltext([name], map: "name_6")
+  @@fulltext([name], map: "name_7")
+  @@fulltext([name], map: "name_9")
+}
+
+model items_groups {
+  group_id    Int    @id @default(autoincrement())
+  property_id Int
+  category_id Int
+  group_name  String @db.VarChar(255)
+}
+
+model items_groups_relations {
+  relation_id Int @id @default(autoincrement())
+  item_id     Int
+  group_id    Int
+}
+
+model items_in_stock {
+  stock_id      Int      @id @default(autoincrement())
+  item_id       Int
+  amount        Float
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([item_id], map: "item_id")
+  @@index([item_id], map: "item_id_2")
+  @@index([log_timestamp], map: "log_timestamp")
+  @@index([stock_id], map: "stock_id")
+}
+
+model liked_items {
+  like_id       Int      @id @default(autoincrement())
+  item_id       Int
+  user_id       Int
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([item_id], map: "item_id")
+  @@index([like_id], map: "like_id")
+  @@index([log_timestamp], map: "log_timestamp")
+  @@index([user_id], map: "user_id")
+}
+
+model manufacturers {
+  manufacturer_id Int    @id @default(autoincrement())
+  name            String @db.VarChar(255)
+  description     String @db.Text
+}
+
+model marketing_promotion_details {
+  detail_id              Int      @id @default(autoincrement())
+  type                   String   @db.VarChar(30)
+  base_amount            Decimal? @db.Decimal(10, 3)
+  add_amount             Decimal? @db.Decimal(10, 3)
+  marketing_promotion_id Int
+  item_id                Int
+  name                   String   @db.VarChar(60)
+  discount               Decimal? @db.Decimal(10, 2)
+}
+
+model marketing_promotion_stories {
+  story_id               Int    @id @default(autoincrement())
+  cover                  String @db.VarChar(255)
+  marketing_promotion_id Int
+  promo                  String @db.Text
+}
+
+model marketing_promotions {
+  marketing_promotion_id Int      @id @default(autoincrement())
+  name                   String?  @db.VarChar(255)
+  start_promotion_date   DateTime @db.DateTime(0)
+  end_promotion_date     DateTime @db.DateTime(0)
+  business_id            Int
+  cover                  String?  @db.VarChar(255)
+  visible                Int      @default(1)
+}
+
+model option_items {
+  relation_id        Int     @id @default(autoincrement())
+  item_id            Int
+  price_type         String  @db.VarChar(30)
+  price              Decimal @default(0.00) @db.Decimal(10, 2)
+  parent_item_amount Float   @default(1)
+  option_id          Int
+
+  @@index([relation_id, item_id, price_type, price, parent_item_amount, option_id], map: "relation_id")
+}
+
+model options {
+  option_id     Int      @id @default(autoincrement())
+  item_id       Int
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  name          String   @db.VarChar(100)
+  required      Int      @default(0)
+  selection     String   @default("SINGLE") @db.VarChar(30)
+
+  @@index([option_id, item_id, log_timestamp, name, required], map: "option_id")
+}
+
+model order_items_options {
+  relation_id             Int      @id @default(autoincrement())
+  order_item_relation_id  Int
+  item_id                 Int
+  option_item_relation_id Int
+  price_id                Int?
+  order_id                Int
+  price                   Decimal  @db.Decimal(10, 2)
+  amount                  Decimal? @db.Decimal(10, 2)
+}
+
+model order_status {
+  status_id     Int      @id @default(autoincrement())
+  order_id      Int
+  status        Int
+  isCanceled    Int      @default(0)
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  halyk_uuid    String?  @db.VarChar(250)
+
+  @@index([status_id], map: "status_id")
+}
+
+model orders {
+  order_id            Int                   @id @default(autoincrement())
+  cart_id             Int?
+  user_id             Int
+  log_timestamp       DateTime              @default(now()) @db.Timestamp(0)
+  address_id          Int
+  delivery_price      Int                   @default(0)
+  created_by          Int?
+  bonus               Int                   @default(0)
+  order_uuid          String?               @db.VarChar(255)
+  payment_id          String?               @db.VarChar(255)
+  accepted_at         DateTime?             @db.Timestamp(0)
+  ready_at            DateTime?             @db.Timestamp(0)
+  payment_type_id     Int?
+  extra               String?               @db.Text
+  courier_id          Int?
+  courier_shift_id    Int?
+  is_canceled         Int                   @default(0)
+  employee_id         Int?
+  business_id         Int?
+  aggregator          String?               @db.VarChar(255)
+  aggregator_order_id String?               @db.VarChar(255)
+  delivery_type       orders_delivery_type?
+  delivery_date       DateTime?             @db.DateTime(0)
+
+  @@index([cart_id], map: "cart_id")
+  @@index([log_timestamp], map: "log_timestamp")
+  @@index([order_id], map: "order_id")
+}
+
+model orders_cost {
+  cost_id       Int      @id @default(autoincrement())
+  order_id      Decimal  @db.Decimal(10, 2)
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  service_fee   Decimal  @db.Decimal(10, 2)
+  delivery      Decimal  @db.Decimal(10, 2)
+  cost          Decimal  @db.Decimal(10, 2)
+}
+
+model orders_items {
+  relation_id                   Int      @id @default(autoincrement())
+  order_id                      Int
+  item_id                       Int
+  price_id                      Int?
+  amount                        Decimal  @db.Decimal(10, 3)
+  price                         Decimal? @db.Decimal(10, 2)
+  marketing_promotion_detail_id Int?
+}
+
+model orders_verify {
+  verify_id Int @id @default(autoincrement())
+  code      Int
+  order_id  Int
+}
+
+model organization {
+  organization_id Int      @id @default(autoincrement())
+  owner_id        Int
+  log_timestamp   DateTime @default(now()) @db.Timestamp(0)
+  name            String   @db.VarChar(255)
+  bin             String   @db.VarChar(255)
+}
+
+model pay_gateways {
+  pay_gateway_id Int    @id @default(autoincrement())
+  name           String @db.VarChar(255)
+}
+
+model payment_types {
+  payment_type_id Int    @id @default(autoincrement())
+  name            String @db.VarChar(255)
+  in_app          Int
+}
+
+model payments {
+  payment_id    Int      @id
+  gateway_id    Int
+  order_id      Int
+  user_id       Int
+  amount        Decimal  @db.Decimal(10, 2)
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+}
+
+model phone_number_verify {
+  verification_id Int      @id @default(autoincrement())
+  phone_number    String   @db.VarChar(30)
+  onetime_code    String   @db.VarChar(10)
+  log_timestamp   DateTime @default(now()) @db.Timestamp(0)
+  is_used         Int      @default(0)
+}
+
+model pick_up_areas {
+  pick_up_area_id Int                    @id @default(autoincrement())
+  borders         Unsupported("polygon")
+  city_id         Int
+}
+
+model prices {
+  price_id      Int      @id @default(autoincrement())
+  item_id       Int
+  price         Decimal  @db.Decimal(10, 2)
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+}
+
+model properties {
+  property_id Int     @id @default(autoincrement())
+  name        String  @db.VarChar(255)
+  icon        String? @db.VarChar(255)
+}
+
+model properties_categories {
+  relation_id Int @id @default(autoincrement())
+  category_id Int
+  property_id Int
+}
+
+model properties_items {
+  relation_id Int @id @default(autoincrement())
+  item_id     Int
+  value_id    Int
+}
+
+model properties_values {
+  value_id    Int    @id @default(autoincrement())
+  property_id Int
+  value       String @db.VarChar(255)
+}
+
+model sales {
+  sale_id     Int    @id @default(autoincrement())
+  name        String @db.VarChar(255)
+  description String @db.Text
+}
+
+model sales_conditions {
+  condition_id   Int    @id @default(autoincrement())
+  condition_name String @db.VarChar(25)
+}
+
+model selected_address {
+  relation_id   Int      @id @default(autoincrement())
+  address_id    Int
+  user_id       Int
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+}
+
+model selected_business {
+  select_id     Int      @id @default(autoincrement())
+  business_id   Int
+  user_id       Int
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+}
+
+model stop_list {
+  stop_id  Int      @id @default(autoincrement())
+  item_id  Int
+  start_at DateTime @db.Timestamp(0)
+  end_at   DateTime @db.Timestamp(0)
+}
+
+model stories {
+  story_id    Int    @id @default(autoincrement())
+  title       String @db.VarChar(255)
+  description String @db.Text
+  type        String @db.VarChar(10)
+  t_id        Int
+  cover       String @db.VarChar(255)
+  business_id Int
+}
+
+model story_pages {
+  page_id     Int    @id @default(autoincrement())
+  file        String @db.VarChar(255)
+  description String @db.Text
+  title       String @db.VarChar(255)
+  story_id    Int
+}
+
+model supplier_orders {
+  order_id      Int       @id @default(autoincrement())
+  code          String    @db.VarChar(255)
+  business_id   Int
+  supplier_name String?   @db.VarChar(255)
+  closed_at     DateTime? @db.Timestamp(0)
+  created_at    DateTime  @db.Timestamp(0)
+}
+
+model supplier_orders_items {
+  soi_id   Int      @id @default(autoincrement())
+  code     String   @db.VarChar(255)
+  price    Decimal  @db.Decimal(10, 2)
+  amount   Decimal  @db.Decimal(10, 2)
+  order_id Int
+  in_stock Decimal? @db.Decimal(10, 2)
+}
+
+model user_addreses {
+  address_id    Int      @id @default(autoincrement())
+  user_id       Int
+  lat           Float
+  lon           Float
+  address       String   @db.VarChar(255)
+  city_id       Int?
+  name          String   @db.VarChar(255)
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  apartment     String   @db.VarChar(20)
+  entrance      String   @db.VarChar(20)
+  floor         String   @db.VarChar(20)
+  other         String   @db.VarChar(255)
+  isDeleted     Int      @default(0)
+
+  @@index([address_id], map: "address_id")
+  @@fulltext([address], map: "address")
+}
+
+model user_rating {
+  rating_id     Int      @id @default(autoincrement())
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  comment       String   @db.VarChar(255)
+  rate          Int
+  employee_id   Int
+  order_id      Int?
+  user_id       Int
+}
+
+model users_geolocations {
+  geo_id        Int      @id @default(autoincrement())
+  lat           Float
+  lon           Float
+  user_id       Int
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+  city_id       Int
+}
+
+model users_tokens {
+  token_id      Int      @id @default(autoincrement())
+  user_id       Int
+  token         String   @db.VarChar(255)
+  log_timestamp DateTime @default(now()) @db.Timestamp(0)
+}
+
+enum cities_delivery_type {
+  AREA
+  DISTANCE
+}
+
+enum orders_delivery_type {
+  DELIVERY
+  SCHEDULED
+  PICKUP
+  EMPTY_ENUM_VALUE @map("")
+}
