@@ -191,6 +191,61 @@ GET /categories
 }
 ```
 
+### 2. Получение товаров категории (включая подкатегории)
+```http
+GET /categories/{category_id}/items
+```
+
+**Query Parameters:**
+- `business_id` (обязательный): ID бизнеса
+- `page` (optional): Номер страницы (по умолчанию 1)
+- `limit` (optional): Количество товаров на странице (по умолчанию 20)
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "category": {
+      "category_id": 37,
+      "name": "Вино",
+      "photo": "https://example.com/wine.png",
+      "img": "https://example.com/wine.jpg"
+    },
+    "business": {
+      "business_id": 2,
+      "name": "Название магазина",
+      "address": "Адрес магазина"
+    },
+    "items": [
+      {
+        "item_id": 100,
+        "name": "Название товара",
+        "description": "Описание товара",
+        "price": 1500,
+        "img": "https://example.com/item.jpg",
+        "code": "ITEM100",
+        "category": {
+          "category_id": 64,
+          "name": "Подкатегория",
+          "parent_category": 37
+        },
+        "visible": 1
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 20,
+      "total": 185,
+      "totalPages": 10
+    },
+    "categories_included": [37, 58, 59, 60, 61, 62, 63, 64, 186],
+    "subcategories_count": 8
+  },
+  "message": "Товары категории получены успешно"
+}
+```
+
 ## Заказы
 
 ### 1. Создание заказа
@@ -491,7 +546,7 @@ Authorization: Bearer {employee_token}
 
 ## Доставка
 
-### 1. Расчет стоимости доставки
+### 1. Расчет стоимости доставки по координатам
 ```http
 POST /delivery/calculate
 ```
@@ -522,10 +577,575 @@ POST /delivery/calculate
 }
 ```
 
+### 2. Расчет стоимости доставки по адресу
+```http
+GET /delivery/calculate-by-address
+```
+
+**Query Parameters:**
+- `business_id`: ID бизнеса (обязательный)
+- `address_id`: ID адреса пользователя (обязательный)
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "delivery_type": "DISTANCE",
+    "distance": 2.5,
+    "delivery_cost": 500,
+    "zone_name": "Зона 1",
+    "coordinates": {
+      "lat": 52.271643,
+      "lon": 76.950011
+    },
+    "address": {
+      "address_id": 456,
+      "name": "Дом",
+      "address": "ул. Пушкина, д. 10",
+      "apartment": "15",
+      "entrance": "2",
+      "floor": "3",
+      "other": "Комментарий"
+    }
+  },
+  "message": "Доставка возможна"
+}
+```
+
 **Delivery Types:**
 - `DISTANCE` - Расчет по расстоянию
 - `AREA` - Расчет по зонам доставки
 - `YANDEX` - Расчет через Яндекс API (fallback)
+
+## Сохраненные карты пользователя
+
+### 1. Получение списка сохраненных карт
+```http
+GET /user/cards
+Authorization: Bearer {token}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "cards": [
+      {
+        "card_id": 123,
+        "mask": "**** **** **** 1234"
+      },
+      {
+        "card_id": 124,
+        "mask": "**** **** **** 5678"
+      }
+    ],
+    "total": 2
+  },
+  "message": "Найдено 2 сохраненных карт"
+}
+```
+
+### 2. Получение карты по ID
+```http
+GET /user/cards/{card_id}
+Authorization: Bearer {token}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "card": {
+      "card_id": 123,
+      "mask": "**** **** **** 1234",
+      "halyk_card_id": "halyk_123456789"
+    }
+  },
+  "message": "Карта найдена"
+}
+```
+
+### 3. Удаление сохраненной карты
+```http
+DELETE /user/cards/{card_id}
+Authorization: Bearer {token}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "card_id": 123
+  },
+  "message": "Карта успешно удалена"
+}
+```
+
+## Сохранение банковских карт (Halyk Bank)
+
+### ⚡ Улучшенная система генерации Invoice ID
+
+С версии от 27.01.2025 внедрена новая система генерации Invoice ID для карт:
+
+**Формат нового Invoice ID:**
+- Шаблон: `CARD{timestamp}{userID}{random}{refresh}`
+- Максимальная длина: 20 символов
+- Пример: `CARD1753624147697910` (для первичного сохранения)
+- Пример: `CARD1753624147697911` (для обновления карты)
+
+**Преимущества новой системы:**
+- ✅ **Уникальность**: Проверка в базе данных (таблицы `orders` и `halyk_saved_cards`)
+- ✅ **Повторные попытки**: До 5 попыток генерации с задержкой 10мс
+- ✅ **Fallback механизм**: Автоматическое использование UUID при неудаче
+- ✅ **Логирование**: Детальные логи процесса генерации
+- ✅ **Совместимость**: Полная совместимость с Halyk Bank API
+
+**Структура ID:**
+- `CARD` - префикс (4 символа)
+- `17536241476` - timestamp с усечением (11 символов)
+- `979` - padded user ID (3 символа)
+- `1` - случайное число (1 символ)
+- `0/1` - refresh флаг (1 символ): 0 = новая карта, 1 = обновление
+
+### 1. Инициализация сохранения карты
+```http
+POST /payments/save-card/init
+Authorization: Bearer {token}
+```
+
+**Body:**
+```json
+{
+  "backLink": "https://your-app.com/success",
+  "failureBackLink": "https://your-app.com/failure", 
+  "postLink": "https://your-backend.com/api/payments/save-card/postlink",
+  "description": "Регистрация карты",
+  "language": "rus"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "paymentObject": {
+      "invoiceId": "CARD1753624147697910",
+      "backLink": "https://your-app.com/success",
+      "failureBackLink": "https://your-app.com/failure",
+      "postLink": "https://your-backend.com/api/payments/save-card/postlink",
+      "language": "rus",
+      "description": "Регистрация карты",
+      "accountId": "123",
+      "terminal": "bb4dec49-6e30-41d0-b16b-8ba1831a854b",
+      "amount": 0,
+      "currency": "KZT",
+      "cardSave": true,
+      "paymentType": "cardVerification",
+      "auth": "DCEB8O_ZM5U7SO_T_U5EJQ"
+    },
+    "jsLibraryUrl": "https://epay.homebank.kz/payform/payment-api.js",
+    "invoiceId": "CARD1753624147697910",
+    "instructions": {
+      "frontend": "Подключите JS-библиотеку и вызовите halyk.pay(paymentObject)",
+      "jsLibrary": "https://epay.homebank.kz/payform/payment-api.js",
+      "method": "halyk.pay()"
+    }
+  },
+  "message": "Токен получен, готов для сохранения карты"
+}
+```
+
+### 2. Обновление токена при истечении времени
+```http
+POST /payments/save-card/refresh-init
+Authorization: Bearer {token}
+```
+
+**Body:**
+```json
+{
+  "backLink": "https://your-app.com/success",
+  "failureBackLink": "https://your-app.com/failure", 
+  "postLink": "https://your-backend.com/api/payments/save-card/postlink",
+  "description": "Регистрация карты (обновлено)",
+  "language": "rus"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "paymentObject": {
+      "invoiceId": "CARD1753624147697911",
+      "backLink": "https://your-app.com/success",
+      "failureBackLink": "https://your-app.com/failure",
+      "postLink": "https://your-backend.com/api/payments/save-card/postlink",
+      "language": "rus",
+      "description": "Регистрация карты (обновлено)",
+      "accountId": "123",
+      "terminal": "bb4dec49-6e30-41d0-b16b-8ba1831a854b",
+      "amount": 0,
+      "currency": "KZT",
+      "cardSave": true,
+      "paymentType": "cardVerification",
+      "auth": "NEW_FRESH_TOKEN_HERE",
+      "timestamp": 1753617672668
+    },
+    "jsLibraryUrl": "https://epay.homebank.kz/payform/payment-api.js",
+    "invoiceId": "CARD1753624147697911",
+    "refreshed": true,
+    "instructions": {
+      "frontend": "Токен обновлен. Подключите JS-библиотеку и вызовите halyk.pay(paymentObject)",
+      "jsLibrary": "https://epay.homebank.kz/payform/payment-api.js",
+      "method": "halyk.pay()",
+      "note": "Это обновленная сессия с новым токеном"
+    }
+  },
+  "message": "Токен обновлен, готов для сохранения карты"
+}
+```
+
+### 3. Обработка статуса платежа и ошибок
+```http
+POST /payments/status
+Authorization: Bearer {token}
+```
+
+**Body:**
+```json
+{
+  "invoiceId": "CARD1690456789123",
+  "error": "timeout",
+  "errorMessage": "Время оплаты истекло"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "invoiceId": "CARD1753624147697910",
+    "status": "error",
+    "canRetry": true,
+    "errorType": "timeout",
+    "userMessage": "Время сеанса истекло. Попробуйте создать новую сессию.",
+    "recommendation": "refresh_token"
+  },
+  "message": "Статус платежа обработан"
+}
+```
+
+**Error Types:**
+- `timeout` - Истечение времени сессии
+- `cancelled` - Отмена пользователем  
+- `card_error` - Ошибка с картой
+- `unknown` - Неизвестная ошибка
+
+**Recommendations:**
+- `refresh_token` - Обновить токен и повторить
+- `user_cancelled` - Пользователь отменил операцию
+- `check_card_data` - Проверить данные карты
+- `retry` - Повторить операцию
+
+### 4. Обработка PostLink (Webhook от Halyk Bank)
+```http
+POST /payments/save-card/postlink
+```
+
+**Body (автоматически отправляется Halyk Bank):**
+```json
+{
+  "accountId": "123",
+  "amount": 0,
+  "approvalCode": "178644",
+  "cardId": "4cd44b44-4445-14a6-e063-1b01040a44c4",
+  "cardMask": "440043...0128",
+  "cardType": "VISA",
+  "code": "ok",
+  "currency": "USD",
+  "dateTime": "2025-02-12T09:42:51.960781107+05:00",
+  "description": "Регистрация карты",
+  "invoiceId": "CARD1690456789123",
+  "reason": "success",
+  "reasonCode": 0,
+  "terminal": "67e34d63-102f-4bd1-898e-370781d0074d"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "PostLink обработан"
+}
+```
+
+### 5. Интеграция на фронтенде (исправленная версия)
+
+**Правильная реализация без использования process.env:**
+
+```javascript
+// Пример React компонента для добавления карты
+const AddCardComponent = () => {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [canRetry, setCanRetry] = useState(true);
+
+  const initCardSave = async (isRefresh = false) => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const endpoint = isRefresh 
+        ? '/api/payments/save-card/refresh-init' 
+        : '/api/payments/save-card/init';
+      
+      // Получаем текущий домен динамически
+      const baseUrl = window.location.origin;
+      
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          backLink: `${baseUrl}/cards/success`,
+          failureBackLink: `${baseUrl}/cards/failure`,
+          // Используем статический URL бэкенда или конфиг
+          postLink: `${window.API_BASE_URL || 'http://localhost:3000'}/api/payments/save-card/postlink`
+        })
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        await loadHalykScript(data.data.jsLibraryUrl);
+        setupHalykCallbacks(data.data.invoiceId);
+        window.halyk.pay(data.data.paymentObject);
+      } else {
+        throw new Error(data.message);
+      }
+      
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
+  };
+
+  const loadHalykScript = (url) => {
+    return new Promise((resolve, reject) => {
+      if (document.querySelector(`script[src="${url}"]`)) {
+        resolve();
+        return;
+      }
+      
+      const script = document.createElement('script');
+      script.src = url;
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  };
+
+  const setupHalykCallbacks = (invoiceId) => {
+    // Callback для успешного завершения
+    window.halykPaymentSuccess = (result) => {
+      setLoading(false);
+      console.log('Карта успешно добавлена:', result);
+      // Обновить список карт
+      refreshCardsList();
+    };
+
+    // Callback для ошибок
+    window.halykPaymentError = (error) => {
+      handlePaymentError(invoiceId, error.code, error.message);
+    };
+
+    // Callback для отмены
+    window.halykPaymentCancel = () => {
+      handlePaymentError(invoiceId, 'cancelled', 'Операция отменена пользователем');
+    };
+
+    // Callback для таймаута
+    window.halykPaymentTimeout = () => {
+      handlePaymentError(invoiceId, 'timeout', 'Время сеанса истекло');
+    };
+  };
+
+  const handlePaymentError = async (invoiceId, error, errorMessage) => {
+    try {
+      const response = await fetch('/api/payments/status', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ invoiceId, error, errorMessage })
+      });
+
+      const statusData = await response.json();
+      
+      if (statusData.success) {
+        const { userMessage, recommendation, canRetry } = statusData.data;
+        setError(userMessage);
+        setCanRetry(canRetry);
+        setLoading(false);
+
+        // Автоматическое обновление токена при timeout
+        if (recommendation === 'refresh_token') {
+          setTimeout(() => {
+            initCardSave(true); // Обновляем токен
+          }, 2000);
+        }
+      }
+    } catch (err) {
+      setError('Произошла неизвестная ошибка');
+      setLoading(false);
+    }
+  };
+
+  const refreshCardsList = async () => {
+    try {
+      const response = await fetch('/api/user/cards', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('authToken')}`
+        }
+      });
+      const data = await response.json();
+      if (data.success) {
+        // Обновить состояние списка карт
+        console.log('Список карт обновлен:', data.data.cards);
+      }
+    } catch (error) {
+      console.error('Ошибка обновления списка карт:', error);
+    }
+  };
+
+  return (
+    <div className="add-card-component">
+      <h3>Добавление банковской карты</h3>
+      <p>Для сохранения карты будет произведена верификация на сумму 0 ₸</p>
+      
+      {loading && (
+        <div className="loading">
+          <p>Инициализация платежной сессии...</p>
+        </div>
+      )}
+      
+      {error && (
+        <div className="error">
+          <p>{error}</p>
+          {canRetry && (
+            <div className="retry-buttons">
+              <button onClick={() => initCardSave()}>
+                Попробовать снова
+              </button>
+              <button onClick={() => initCardSave(true)}>
+                Обновить сессию
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {!loading && !error && (
+        <button onClick={() => initCardSave()}>
+          Добавить карту
+        </button>
+      )}
+    </div>
+  );
+};
+```
+
+**Конфигурация для разных окружений:**
+
+```javascript
+// В index.html или в начале приложения
+window.API_BASE_URL = 'http://localhost:3000'; // для разработки
+// window.API_BASE_URL = 'https://api.naliv.kz'; // для продакшена
+```
+
+**Альтернативный способ через конфигурационный файл:**
+
+```javascript
+// config.js
+const config = {
+  development: {
+    API_BASE_URL: 'http://localhost:3000'
+  },
+  production: {
+    API_BASE_URL: 'https://api.naliv.kz'
+  }
+};
+
+export default config[process.env.NODE_ENV || 'development'];
+```
+
+**Обработка переходов:**
+
+```javascript
+// Success page (/cards/success)
+useEffect(() => {
+  if (window.opener) {
+    window.opener.postMessage({ 
+      type: 'CARD_SAVE_SUCCESS',
+      timestamp: Date.now()
+    }, window.location.origin);
+    window.close();
+  }
+}, []);
+
+// Failure page (/cards/failure)  
+useEffect(() => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const error = urlParams.get('error');
+  const message = urlParams.get('message');
+  
+  if (window.opener) {
+    window.opener.postMessage({
+      type: 'CARD_SAVE_ERROR',
+      error,
+      message,
+      timestamp: Date.now()
+    }, window.location.origin);
+    window.close();
+  }
+}, []);
+```
+
+**Процесс сохранения карты:**
+1. Пользователь инициирует сохранение карты через `/payments/save-card/init`
+2. Получаем `paymentObject` и `jsLibraryUrl` 
+3. На фронтенде подключаем JS-библиотеку Halyk Bank
+4. Вызываем `halyk.pay(paymentObject)` для открытия формы ввода карты
+5. Пользователь вводит данные карты (сумма = 0 ₸ для верификации)
+6. Halyk Bank отправляет PostLink на наш webhook
+7. Карта сохраняется в таблице `halyk_saved_cards`
+
+**Важные замечания:**
+- Используется production API Halyk Bank (`https://epay.homebank.kz`)
+- Валюта: KZT (казахстанские тенге)
+- Сумма верификации: 0 ₸ (деньги не списываются)
+- Токен действует 20 минут (1200 секунд)
+- При истечении токена используйте `/payments/save-card/refresh-init`
+- Не используйте `process.env` на фронтенде - используйте `window.API_BASE_URL`
+- Автоматическое восстановление при timeout через 2 секунды
+
+**Обработка ошибок:**
+- `timeout` → автоматическое обновление токена
+- `cancelled` → показать кнопку "Попробовать снова"  
+- `card_error` → показать сообщение "Проверьте данные карты"
+- `unknown` → показать общее сообщение об ошибке
 
 ## Коды ошибок
 

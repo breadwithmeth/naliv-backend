@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Payment Processing Complete</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 1000px; margin: 0 auto; }
+        .test-section { border: 1px solid #ddd; margin: 20px 0; padding: 20px; border-radius: 5px; }
+        .test-section h3 { margin-top: 0; color: #333; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
+        button:hover { background: #0056b3; }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .info { color: #17a2b8; }
+        .output { background: #f8f9fa; padding: 15px; border-radius: 4px; margin: 10px 0; max-height: 300px; overflow-y: auto; }
+        input, select { padding: 8px; margin: 5px; border: 1px solid #ddd; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Полное тестирование платежной системы</h1>
+
+    <!-- Тест создания заказа с оплатой -->
+    <div class="test-section">
+        <h3>1. Создание заказа с оплатой</h3>
+        <button onclick="testCreateOrderWithPayment()">Создать заказ с оплатой</button>
+        <button onclick="testCreateOrderPickup()">Создать заказ (самовывоз)</button>
+        <div class="output" id="orderOutput"></div>
+    </div>
+
+    <!-- Тест успешной оплаты -->
+    <div class="test-section">
+        <h3>2. Тест страницы успешной оплаты</h3>
+        <input type="text" id="successInvoiceId" placeholder="Invoice ID" value="CARD1753627123456789">
+        <input type="text" id="successAmount" placeholder="Сумма" value="2500">
+        <button onclick="testPaymentSuccess()">Открыть страницу успеха</button>
+        <div class="output" id="successOutput"></div>
+    </div>
+
+    <!-- Тест неудачной оплаты -->
+    <div class="test-section">
+        <h3>3. Тест страницы неудачной оплаты</h3>
+        <input type="text" id="failureInvoiceId" placeholder="Invoice ID" value="CARD1753627123456789">
+        <input type="text" id="failureError" placeholder="Код ошибки" value="INSUFFICIENT_FUNDS">
+        <input type="text" id="failureMessage" placeholder="Сообщение об ошибке" value="Недостаточно средств на карте">
+        <button onclick="testPaymentFailure()">Открыть страницу ошибки</button>
+        <div class="output" id="failureOutput"></div>
+    </div>
+
+    <!-- Тест webhook -->
+    <div class="test-section">
+        <h3>4. Тест webhook от Halyk Bank</h3>
+        <input type="text" id="webhookInvoiceId" placeholder="Invoice ID" value="CARD1753627123456789">
+        <select id="webhookStatus">
+            <option value="PAID">Успешная оплата (PAID)</option>
+            <option value="FAILED">Неудачная оплата (FAILED)</option>
+        </select>
+        <button onclick="testWebhook()">Отправить webhook</button>
+        <div class="output" id="webhookOutput"></div>
+    </div>
+
+    <!-- Тест статуса заказа -->
+    <div class="test-section">
+        <h3>5. Проверка статуса заказа</h3>
+        <input type="number" id="statusOrderId" placeholder="ID заказа" value="1">
+        <button onclick="testOrderStatus()">Проверить статус</button>
+        <div class="output" id="statusOutput"></div>
+    </div>
+
+    <!-- Общий лог -->
+    <div class="test-section">
+        <h3>📋 Общий лог тестирования</h3>
+        <button onclick="clearLog()">Очистить лог</button>
+        <div class="output" id="generalLog"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000';
+        const JWT_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoyNTIsInVzZXJuYW1lIjoic2hydiIsImVtYWlsIjoic2hydk5hbGl2QGdtYWlsLmNvbSIsImlhdCI6MTczNzk5MTA1NSwiZXhwIjoxNzM3OTk0NjU1fQ.LhCYSfhcLGIeHGU5w_fwM3j0bVrGM-IHhzK6EWuP0QY';
+
+        function log(message, type = 'info', outputId = 'generalLog') {
+            const output = document.getElementById(outputId);
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            const logEntry = `<p class="${className}">[${timestamp}] ${message}</p>`;
+            output.innerHTML += logEntry;
+            
+            // Дублируем в общий лог
+            if (outputId !== 'generalLog') {
+                document.getElementById('generalLog').innerHTML += logEntry;
+            }
+            
+            // Автоскролл
+            output.scrollTop = output.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLog() {
+            document.getElementById('generalLog').innerHTML = '';
+        }
+
+        // 1. Тест создания заказа с оплатой
+        async function testCreateOrderWithPayment() {
+            try {
+                log('🛒 Создание заказа с доставкой...', 'info', 'orderOutput');
+
+                const orderData = {
+                    business_id: 1,
+                    address_id: 42,
+                    delivery_type: 'DELIVERY',
+                    items: [
+                        { item_id: 1, amount: 2, options: [] },
+                        { item_id: 2, amount: 1, options: [] }
+                    ],
+                    payment_method: 'card'
+                };
+
+                const response = await fetch(`${API_BASE_URL}/api/payments/create-order-with-payment`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${JWT_TOKEN}`
+                    },
+                    body: JSON.stringify(orderData)
+                });
+
+                if (response.headers.get('content-type')?.includes('text/html')) {
+                    log('✅ Получен HTML ответ с платежной формой!', 'success', 'orderOutput');
+                    const html = await response.text();
+                    
+                    // Извлекаем информацию из HTML
+                    const orderMatch = html.match(/Заказ №(ORDER-[^"]+)/);
+                    const amountMatch = html.match(/Сумма к оплате: (\d+(?:\.\d+)?)/);
+                    
+                    if (orderMatch) {
+                        log(`📦 Заказ создан: ${orderMatch[1]}`, 'success', 'orderOutput');
+                        // Сохраняем для других тестов
+                        window.testOrderUuid = orderMatch[1];
+                    }
+                    if (amountMatch) {
+                        log(`💰 Сумма: ${amountMatch[1]} ₸`, 'info', 'orderOutput');
+                    }
+
+                    // Предлагаем открыть платежную форму
+                    if (confirm('Открыть платежную форму в новом окне?')) {
+                        const paymentWindow = window.open('', '_blank');
+                        paymentWindow.document.write(html);
+                        log('🚀 Платежная форма открыта в новом окне', 'success', 'orderOutput');
+                    }
+                } else {
+                    const result = await response.json();
+                    log('❌ Ошибка: ' + JSON.stringify(result, null, 2), 'error', 'orderOutput');
+                }
+
+            } catch (error) {
+                log('❌ Ошибка создания заказа: ' + error.message, 'error', 'orderOutput');
+            }
+        }
+
+        // Тест самовывоза
+        async function testCreateOrderPickup() {
+            try {
+                log('🏪 Создание заказа с самовывозом...', 'info', 'orderOutput');
+
+                const orderData = {
+                    business_id: 1,
+                    delivery_type: 'PICKUP',
+                    items: [
+                        { item_id: 1, amount: 1, options: [] }
+                    ],
+                    payment_method: 'card'
+                };
+
+                const response = await fetch(`${API_BASE_URL}/api/payments/create-order-with-payment`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${JWT_TOKEN}`
+                    },
+                    body: JSON.stringify(orderData)
+                });
+
+                if (response.headers.get('content-type')?.includes('text/html')) {
+                    log('✅ Заказ самовывоз создан!', 'success', 'orderOutput');
+                    const html = await response.text();
+                    const orderMatch = html.match(/Заказ №(ORDER-[^"]+)/);
+                    if (orderMatch) {
+                        log(`📦 Заказ самовывоз: ${orderMatch[1]}`, 'success', 'orderOutput');
+                    }
+                }
+
+            } catch (error) {
+                log('❌ Ошибка создания заказа самовывоз: ' + error.message, 'error', 'orderOutput');
+            }
+        }
+
+        // 2. Тест страницы успешной оплаты
+        function testPaymentSuccess() {
+            const invoiceId = document.getElementById('successInvoiceId').value;
+            const amount = document.getElementById('successAmount').value;
+            
+            log(`🎉 Открытие страницы успешной оплаты для ${invoiceId}`, 'info', 'successOutput');
+            
+            const url = `${API_BASE_URL}/api/payments/success?invoiceId=${invoiceId}&amount=${amount}&cardMask=4455**1234`;
+            window.open(url, '_blank');
+            
+            log('✅ Страница успеха открыта в новом окне', 'success', 'successOutput');
+        }
+
+        // 3. Тест страницы неудачной оплаты
+        function testPaymentFailure() {
+            const invoiceId = document.getElementById('failureInvoiceId').value;
+            const error = document.getElementById('failureError').value;
+            const errorMessage = document.getElementById('failureMessage').value;
+            
+            log(`❌ Открытие страницы ошибки оплаты для ${invoiceId}`, 'info', 'failureOutput');
+            
+            const url = `${API_BASE_URL}/api/payments/failure?invoiceId=${invoiceId}&error=${error}&errorMessage=${encodeURIComponent(errorMessage)}`;
+            window.open(url, '_blank');
+            
+            log('✅ Страница ошибки открыта в новом окне', 'success', 'failureOutput');
+        }
+
+        // 4. Тест webhook
+        async function testWebhook() {
+            try {
+                const invoiceId = document.getElementById('webhookInvoiceId').value;
+                const status = document.getElementById('webhookStatus').value;
+                
+                log(`📞 Отправка webhook для ${invoiceId} со статусом ${status}`, 'info', 'webhookOutput');
+
+                const webhookData = {
+                    invoiceId: invoiceId,
+                    status: status,
+                    paymentStatus: status === 'PAID' ? 'SUCCESS' : 'FAILED',
+                    amount: '2500',
+                    currency: 'KZT',
+                    cardMask: '4455**1234',
+                    transactionId: 'TXN' + Date.now(),
+                    timestamp: new Date().toISOString()
+                };
+
+                if (status === 'FAILED') {
+                    webhookData.errorCode = 'INSUFFICIENT_FUNDS';
+                    webhookData.errorMessage = 'Недостаточно средств на карте';
+                }
+
+                const response = await fetch(`${API_BASE_URL}/api/payments/webhook`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(webhookData)
+                });
+
+                const result = await response.json();
+                log('✅ Webhook отправлен: ' + JSON.stringify(result, null, 2), 'success', 'webhookOutput');
+
+            } catch (error) {
+                log('❌ Ошибка webhook: ' + error.message, 'error', 'webhookOutput');
+            }
+        }
+
+        // 5. Тест статуса заказа
+        async function testOrderStatus() {
+            try {
+                const orderId = document.getElementById('statusOrderId').value;
+                
+                log(`📊 Проверка статуса заказа ${orderId}`, 'info', 'statusOutput');
+
+                const response = await fetch(`${API_BASE_URL}/api/payments/order-payment-status/${orderId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${JWT_TOKEN}`
+                    }
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    log('✅ Статус получен: ' + JSON.stringify(result.data, null, 2), 'success', 'statusOutput');
+                } else {
+                    log('❌ Ошибка получения статуса: ' + result.message, 'error', 'statusOutput');
+                }
+
+            } catch (error) {
+                log('❌ Ошибка запроса статуса: ' + error.message, 'error', 'statusOutput');
+            }
+        }
+
+        // Слушаем сообщения от платежных окон
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'payment_success') {
+                log(`🎉 Получено уведомление об успешной оплате: ${event.data.invoiceId}`, 'success');
+            } else if (event.data.type === 'payment_failure') {
+                log(`❌ Получено уведомление об ошибке оплаты: ${event.data.error}`, 'error');
+            } else if (event.data.type === 'payment_retry') {
+                log(`🔄 Запрос на повторную оплату: ${event.data.invoiceId}`, 'info');
+            }
+        });
+
+        log('🧪 Система тестирования платежей готова к работе', 'success');
+    </script>
+</body>
+</html>

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Order Creation with Payment</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input, select, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .output { margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px; min-height: 100px; }
+        .success { color: #28a745; }
+        .error { color: #dc3545; }
+        .info { color: #17a2b8; }
+    </style>
+</head>
+<body>
+    <h1>Тестирование создания заказа с оплатой</h1>
+    
+    <form id="orderForm">
+        <div class="form-group">
+            <label for="business_id">ID Бизнеса:</label>
+            <input type="number" id="business_id" name="business_id" value="1" required>
+        </div>
+
+        <div class="form-group">
+            <label for="address_id">ID Адреса доставки:</label>
+            <input type="number" id="address_id" name="address_id" value="42">
+        </div>
+
+        <div class="form-group">
+            <label for="delivery_type">Тип доставки:</label>
+            <select id="delivery_type" name="delivery_type" required>
+                <option value="DELIVERY">Доставка</option>
+                <option value="PICKUP">Самовывоз</option>
+                <option value="SCHEDULED">Запланированная доставка</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="items">Товары (JSON):</label>
+            <textarea id="items" name="items" rows="6" required>[
+  {
+    "item_id": 1,
+    "amount": 2,
+    "options": []
+  },
+  {
+    "item_id": 2,
+    "amount": 1,
+    "options": []
+  }
+]</textarea>
+        </div>
+
+        <div class="form-group">
+            <label for="payment_method">Метод оплаты:</label>
+            <select id="payment_method" name="payment_method">
+                <option value="card">Новая карта</option>
+                <option value="saved_card">Сохраненная карта</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="saved_card_id">ID Сохраненной карты (если выбран метод 'saved_card'):</label>
+            <input type="number" id="saved_card_id" name="saved_card_id">
+        </div>
+
+        <div class="form-group">
+            <label for="bonus">Бонусы:</label>
+            <input type="number" id="bonus" name="bonus" value="0">
+        </div>
+
+        <button type="submit">Создать заказ с оплатой</button>
+    </form>
+
+    <div class="form-group" style="margin-top: 30px;">
+        <h3>Проверка статуса заказа</h3>
+        <label for="order_id_check">ID заказа для проверки:</label>
+        <input type="number" id="order_id_check" placeholder="Введите ID заказа">
+        <button type="button" onclick="checkOrderStatus()">Проверить статус</button>
+    </div>
+
+    <div class="output" id="output">
+        Здесь будет отображен результат...
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000';
+        const JWT_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoyNTIsInVzZXJuYW1lIjoic2hydiIsImVtYWlsIjoic2hydk5hbGl2QGdtYWlsLmNvbSIsImlhdCI6MTczNzk5MTA1NSwiZXhwIjoxNzM3OTk0NjU1fQ.LhCYSfhcLGIeHGU5w_fwM3j0bVrGM-IHhzK6EWuP0QY'; // Замените на актуальный токен
+
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            output.innerHTML += `<p class="${className}">[${timestamp}] ${message}</p>`;
+            console.log(message);
+        }
+
+        document.getElementById('orderForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // Очищаем вывод
+            document.getElementById('output').innerHTML = '';
+            
+            try {
+                log('Создание заказа с оплатой...', 'info');
+                
+                // Собираем данные формы
+                const formData = new FormData(this);
+                const data = {};
+                
+                for (let [key, value] of formData.entries()) {
+                    if (key === 'items') {
+                        try {
+                            data[key] = JSON.parse(value);
+                        } catch (e) {
+                            throw new Error('Некорректный JSON для товаров');
+                        }
+                    } else if (key === 'business_id' || key === 'address_id' || key === 'bonus' || key === 'saved_card_id') {
+                        data[key] = value ? parseInt(value) : undefined;
+                    } else {
+                        data[key] = value || undefined;
+                    }
+                }
+
+                // Удаляем пустые поля
+                Object.keys(data).forEach(key => {
+                    if (data[key] === undefined || data[key] === '') {
+                        delete data[key];
+                    }
+                });
+
+                log(`Отправляем данные: ${JSON.stringify(data, null, 2)}`, 'info');
+
+                const response = await fetch(`${API_BASE_URL}/api/payments/create-order-with-payment`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${JWT_TOKEN}`
+                    },
+                    body: JSON.stringify(data)
+                });
+
+                if (response.headers.get('content-type')?.includes('text/html')) {
+                    log('✅ Получен HTML ответ с платежной формой!', 'success');
+                    const html = await response.text();
+                    
+                    // Показываем информацию о содержимом
+                    log(`HTML содержит Halyk библиотеку: ${html.includes('payment-api.js') ? 'Да' : 'Нет'}`, 'info');
+                    log(`HTML содержит halyk.pay: ${html.includes('halyk.pay') ? 'Да' : 'Нет'}`, 'info');
+                    log(`HTML содержит токен auth: ${html.includes('"access_token"') ? 'Да' : 'Нет'}`, 'info');
+                    
+                    // Извлекаем информацию о заказе из HTML
+                    const orderMatch = html.match(/Заказ №(ORDER-[^"]+)/);
+                    const amountMatch = html.match(/Сумма к оплате: (\d+(?:\.\d+)?)/);
+                    
+                    if (orderMatch) {
+                        log(`📦 Номер заказа: ${orderMatch[1]}`, 'success');
+                    }
+                    if (amountMatch) {
+                        log(`💰 Сумма к оплате: ${amountMatch[1]} ₸`, 'success');
+                    }
+                    
+                    // Предлагаем открыть в новом окне
+                    const openPayment = confirm('Открыть платежную форму в новом окне?');
+                    if (openPayment) {
+                        const newWindow = window.open('', '_blank');
+                        newWindow.document.write(html);
+                        log('🚀 Платежная форма открыта в новом окне', 'success');
+                    }
+                    
+                } else {
+                    const result = await response.json();
+                    if (result.success) {
+                        log('✅ ' + JSON.stringify(result, null, 2), 'success');
+                    } else {
+                        log('❌ ' + JSON.stringify(result, null, 2), 'error');
+                    }
+                }
+
+            } catch (error) {
+                log('❌ Ошибка: ' + error.message, 'error');
+            }
+        });
+
+        async function checkOrderStatus() {
+            const orderId = document.getElementById('order_id_check').value;
+            if (!orderId) {
+                log('❌ Введите ID заказа', 'error');
+                return;
+            }
+
+            try {
+                log(`Проверка статуса заказа ${orderId}...`, 'info');
+
+                const response = await fetch(`${API_BASE_URL}/api/payments/order-payment-status/${orderId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${JWT_TOKEN}`
+                    }
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    log('✅ Статус заказа получен:', 'success');
+                    log(`📦 Заказ: ${result.data.order.order_uuid}`, 'info');
+                    log(`📊 Статус: ${result.data.order.status}`, 'info');
+                    log(`💰 Стоимость: ${result.data.cost?.total} ₸`, 'info');
+                    log(`🚚 Доставка: ${result.data.cost?.delivery} ₸`, 'info');
+                    log(`💳 Тип доставки: ${result.data.order.delivery_type}`, 'info');
+                    
+                    if (result.data.payment) {
+                        log(`🔗 Invoice ID: ${result.data.payment.payment_invoice_id}`, 'info');
+                        log(`💳 Метод оплаты: ${result.data.payment.payment_method}`, 'info');
+                    }
+                } else {
+                    log('❌ ' + JSON.stringify(result, null, 2), 'error');
+                }
+
+            } catch (error) {
+                log('❌ Ошибка проверки статуса: ' + error.message, 'error');
+            }
+        }
+
+        log('Готов к тестированию создания заказа с оплатой', 'info');
+    </script>
+</body>
+</html>

@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔐 Автообновление токенов Halyk Bank</title>
+    <script src="https://epay.homebank.kz/payform/payment-api.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .alert {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .alert-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .alert-danger { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .alert-warning { background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .alert-info { background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+            font-size: 14px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { 
+            background-color: #6c757d; 
+            cursor: not-allowed; 
+        }
+        .token-info {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .old-data {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .new-data {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Решение ошибки "Время оплаты истекло"</h1>
+        
+        <div class="alert alert-danger">
+            <strong>❌ Проблема обнаружена:</strong><br>
+            Ваш токен <code>7IJUZR04ALI6GSOZAQ3DS8</code> истёк!<br>
+            InvoiceId <code>CARD1753625477259025</code> больше не действителен.
+        </div>
+
+        <div class="alert alert-info">
+            <strong>💡 Что происходит:</strong><br>
+            1. Токены Halyk Bank действуют 20 минут<br>
+            2. Если использовать истёкший токен = ошибка 400<br>
+            3. Система автоматически получает новые данные
+        </div>
+
+        <div class="old-data">
+            <strong>🕰️ Истёкшие данные:</strong><br>
+            • InvoiceId: <code>CARD1753625477259025</code><br>
+            • Auth: <code>7IJUZR04ALI6GSOZAQ3DS8</code><br>
+            • Статус: ❌ Истёк
+        </div>
+
+        <div class="new-data" id="newDataContainer" style="display: none;">
+            <strong>✅ Свежие данные:</strong><br>
+            • InvoiceId: <code id="newInvoiceId">Загружается...</code><br>
+            • Auth: <code id="newAuth">Загружается...</code><br>
+            • Статус: ✅ Активен
+        </div>
+
+        <div style="text-align: center; margin: 20px 0;">
+            <button onclick="getLatestData()" id="refreshBtn">🔄 Получить свежие данные</button>
+            <button onclick="testOldData()" id="testOldBtn">⚠️ Тест истёкших данных</button>
+            <button onclick="startPayment()" id="startBtn" disabled>🚀 Запустить с новыми данными</button>
+        </div>
+
+        <div id="statusAlert" class="alert alert-info">
+            Нажмите "Получить свежие данные" для решения проблемы
+        </div>
+
+        <div class="token-info" id="tokenInfo">
+            <strong>📊 Информация о токенах:</strong><br>
+            <div id="tokenDetails">Данные появятся после получения нового токена...</div>
+        </div>
+    </div>
+
+    <script>
+        let currentPaymentObject = null;
+        let freshData = null;
+
+        function updateStatus(message, type = 'info') {
+            const statusAlert = document.getElementById('statusAlert');
+            statusAlert.className = `alert alert-${type}`;
+            statusAlert.innerHTML = message;
+        }
+
+        function updateTokenInfo(info) {
+            document.getElementById('tokenDetails').innerHTML = info;
+        }
+
+        async function getLatestData() {
+            try {
+                updateStatus('🔄 Получение свежих данных...', 'info');
+                document.getElementById('refreshBtn').disabled = true;
+
+                // Получаем новый invoiceId
+                const response = await fetch('http://localhost:3000/api/payments/test-invoice-generation', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        userId: 252
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    const newInvoiceId = data.data.generatedIds[0]; // Берём первый
+                    
+                    // Теперь получаем auth токен
+                    const authResponse = await fetch('http://localhost:3000/api/payments/save-card/test-init', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            userId: 252,
+                            amount: 0,
+                            invoiceId: newInvoiceId
+                        })
+                    });
+
+                    const authData = await authResponse.json();
+                    
+                    if (authData.success) {
+                        const newAuth = authData.data.auth;
+                        
+                        // Создаём новый объект платежа
+                        freshData = {
+                            "invoiceId": newInvoiceId,
+                            "backLink": "https://your-app.com/success",
+                            "failureBackLink": "https://your-app.com/failure",
+                            "postLink": "https://your-backend.com/api/payments/save-card/postlink",
+                            "language": "rus",
+                            "description": "Регистрация карты - свежие данные",
+                            "accountId": "252",
+                            "terminal": "bb4dec49-6e30-41d0-b16b-8ba1831a854b",
+                            "amount": 0,
+                            "currency": "KZT",
+                            "cardSave": true,
+                            "paymentType": "cardVerification",
+                            "auth": newAuth
+                        };
+
+                        // Обновляем интерфейс
+                        document.getElementById('newInvoiceId').textContent = newInvoiceId;
+                        document.getElementById('newAuth').textContent = newAuth;
+                        document.getElementById('newDataContainer').style.display = 'block';
+                        document.getElementById('startBtn').disabled = false;
+
+                        updateStatus('✅ Свежие данные получены! Теперь можно запустить платёж.', 'success');
+                        updateTokenInfo(`
+                            <strong>Новый InvoiceId:</strong> ${newInvoiceId}<br>
+                            <strong>Новый Auth:</strong> ${newAuth}<br>
+                            <strong>Время создания:</strong> ${new Date().toLocaleTimeString()}<br>
+                            <strong>Статус:</strong> ✅ Свежий<br>
+                            <strong>Действителен до:</strong> ${new Date(Date.now() + 20*60*1000).toLocaleTimeString()}
+                        `);
+                    } else {
+                        throw new Error('Не удалось получить auth токен');
+                    }
+
+                } else {
+                    throw new Error('Не удалось получить новый invoiceId');
+                }
+
+            } catch (error) {
+                updateStatus(`❌ Ошибка: ${error.message}`, 'danger');
+                console.error('Детали ошибки:', error);
+            } finally {
+                document.getElementById('refreshBtn').disabled = false;
+            }
+        }
+
+        async function testOldData() {
+            updateStatus('⚠️ Тестируем истёкшие данные (ожидается ошибка)...', 'warning');
+            
+            const oldPaymentObject = {
+                "invoiceId": "CARD1753625477259025",
+                "backLink": "https://your-app.com/success",
+                "failureBackLink": "https://your-app.com/failure",
+                "postLink": "https://your-backend.com/api/payments/save-card/postlink",
+                "language": "rus",
+                "description": "Регистрация карты",
+                "accountId": "252",
+                "terminal": "bb4dec49-6e30-41d0-b16b-8ba1831a854b",
+                "amount": 0,
+                "currency": "KZT",
+                "cardSave": true,
+                "paymentType": "cardVerification",
+                "auth": "7IJUZR04ALI6GSOZAQ3DS8"
+            };
+
+            setupCallbacks();
+            console.log('Тестируем истёкшие данные:', oldPaymentObject);
+            halyk.cardverification(oldPaymentObject);
+        }
+
+        function startPayment() {
+            if (!freshData) {
+                updateStatus('❌ Сначала получите свежие данные!', 'danger');
+                return;
+            }
+
+            updateStatus('🚀 Запуск с новыми данными...', 'info');
+            setupCallbacks();
+            
+            console.log('Запускаем с новыми данными:', freshData);
+            updateTokenInfo(document.getElementById('tokenDetails').innerHTML + '<br><br><strong>🚀 Статус:</strong> Запущен платёж...');
+            
+            halyk.cardverification(freshData);
+        }
+
+        function setupCallbacks() {
+            window.halyk_success = function(data) {
+                console.log('✅ Успех:', data);
+                updateStatus('🎉 Платёж успешно завершён!', 'success');
+                updateTokenInfo(document.getElementById('tokenDetails').innerHTML + '<br><br><strong>✅ Результат:</strong> Успех!');
+            };
+
+            window.halyk_failure = function(error) {
+                console.log('❌ Ошибка:', error);
+                
+                if (error.message && error.message.includes('истекло')) {
+                    updateStatus('⏰ Обнаружен timeout - автоматическое обновление!', 'warning');
+                    setTimeout(() => {
+                        getLatestData();
+                    }, 2000);
+                } else {
+                    updateStatus(`❌ Ошибка платежа: ${error.message || 'Неизвестная ошибка'}`, 'danger');
+                }
+                
+                updateTokenInfo(document.getElementById('tokenDetails').innerHTML + `<br><br><strong>❌ Ошибка:</strong> ${error.message || 'Неизвестная ошибка'}`);
+            };
+
+            window.halyk_cancelled = function() {
+                console.log('❌ Отменено пользователем');
+                updateStatus('❌ Операция отменена пользователем', 'warning');
+            };
+        }
+
+        // Автозапуск при загрузке
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStatus('📋 Страница загружена. Готов к тестированию автообновления токенов.', 'info');
+            updateTokenInfo(`
+                <strong>🕰️ Истёкшие данные:</strong><br>
+                InvoiceId: CARD1753625477259025<br>
+                Auth: 7IJUZR04ALI6GSOZAQ3DS8<br>
+                Статус: ❌ Истёк<br>
+                <br>
+                <em>Нажмите "Получить свежие данные" для исправления</em>
+            `);
+        });
+    </script>
+</body>
+</html>

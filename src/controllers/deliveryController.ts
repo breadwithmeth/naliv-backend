@@ -218,7 +218,23 @@ export class DeliveryController {
       }
       
       // Рассчитываем стоимость доставки по расстоянию
-      const delivery_price = delivery_rate?.base_distance_price ? Number(delivery_rate.base_distance_price) : distance;
+      let delivery_price = 0;
+      
+      if (delivery_rate?.base_distance_price) {
+        // Если есть базовая цена за расстояние, используем её
+        delivery_price = Number(delivery_rate.base_distance_price);
+      } else {
+        // Если нет настроек, используем фиксированную цену по умолчанию
+        delivery_price = 500; // 500 тенге по умолчанию
+        
+        // Дополнительная плата за каждый км сверх 5 км
+        const base_distance_default = 5000; // 5 км в метрах
+        if (distance > base_distance_default) {
+          const extra_distance = distance - base_distance_default;
+          const extra_km = Math.ceil(extra_distance / 1000);
+          delivery_price += extra_km * 100; // 100 тенге за каждый дополнительный км
+        }
+      }
       
       return {
         in_zone: true,
@@ -514,6 +530,84 @@ export class DeliveryController {
     } catch (error: any) {
       console.error('Ошибка получения зон доставки:', error);
       next(createError(500, `Ошибка получения зон доставки: ${error.message}`));
+    }
+  }
+
+  /**
+   * Расчет стоимости доставки по business_id и address_id
+   * GET /api/delivery/calculate-by-address
+   * Query: { business_id: number, address_id: number }
+   */
+  static async calculateDeliveryByAddress(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { business_id, address_id } = req.query;
+
+      // Валидация входных данных
+      if (!business_id || !address_id) {
+        return next(createError(400, 'Параметры business_id и address_id обязательны'));
+      }
+
+      const businessId = parseInt(business_id as string);
+      const addressId = parseInt(address_id as string);
+
+      if (isNaN(businessId) || isNaN(addressId)) {
+        return next(createError(400, 'Параметры business_id и address_id должны быть числами'));
+      }
+
+      // Получаем адрес пользователя
+      const userAddress = await prisma.user_addreses.findUnique({
+        where: {
+          address_id: addressId
+        }
+      });
+
+      if (!userAddress) {
+        return next(createError(404, 'Адрес не найден'));
+      }
+
+      if (userAddress.isDeleted === 1) {
+        return next(createError(400, 'Адрес удален'));
+      }
+
+      // Проверяем что адрес имеет координаты
+      if (!userAddress.lat || !userAddress.lon) {
+        return next(createError(400, 'У адреса отсутствуют координаты'));
+      }
+
+      // Вызываем существующий метод расчета доставки
+      const deliveryResult = await DeliveryController.calculateDeliveryZone({
+        lat: userAddress.lat,
+        lon: userAddress.lon,
+        business_id: businessId
+      });
+
+      res.json({
+        success: true,
+        data: {
+          delivery_type: deliveryResult.delivery_type.toUpperCase(),
+          distance: deliveryResult.current_distance,
+          delivery_cost: deliveryResult.price,
+          zone_name: deliveryResult.message,
+          coordinates: {
+            lat: userAddress.lat,
+            lon: userAddress.lon
+          },
+          address: {
+            address_id: userAddress.address_id,
+            name: userAddress.name,
+            address: userAddress.address,
+            apartment: userAddress.apartment,
+            entrance: userAddress.entrance,
+            floor: userAddress.floor,
+            other: userAddress.other
+          }
+        },
+        message: deliveryResult.in_zone ? 'Доставка возможна' : 'Доставка невозможна'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка расчета доставки по адресу:', error);
+      next(createError(500, `Ошибка расчета доставки: ${error.message}`));
     }
   }
 }

@@ -6,6 +6,9 @@ import orderRoutes from './orders';
 import employeeAuthRoutes from './employeeAuth';
 import categoryRoutes from './categories';
 import deliveryRoutes from './delivery';
+import addressRoutes from './addresses';
+import paymentRoutes from './payments';
+import userCardsRoutes from './userCards';
 
 const router = Router();
 
@@ -22,6 +25,9 @@ router.get('/', (req, res) => {
       orders: '/api/orders',
       categories: '/api/categories',
       delivery: '/api/delivery',
+      addresses: '/api/addresses',
+      payments: '/api/payments',
+      user_cards: '/api/user/cards',
       employee_auth: '/api/employee/auth',
       health: '/health'
     },
@@ -36,6 +42,25 @@ router.get('/', (req, res) => {
       check_delivery_zone: 'POST /api/delivery/check',
       get_delivery_zones: 'GET /api/delivery/zones/:business_id',
       check_body_format: '{ lat: number, lon: number, business_id: number }'
+    },
+    address_info: {
+      search_addresses: 'GET /api/addresses/search?query=address',
+      get_user_addresses: 'GET /api/addresses',
+      add_address: 'POST /api/addresses',
+      update_address: 'PUT /api/addresses/:id',
+      delete_address: 'DELETE /api/addresses/:id'
+    },
+    payment_info: {
+      get_payment_methods: 'GET /api/payments/methods',
+      get_active_payment_methods: 'GET /api/payments/methods/active',
+      get_payment_method: 'GET /api/payments/methods/:id',
+      init_card_save: 'POST /api/payments/save-card/init',
+      card_save_postlink: 'POST /api/payments/save-card/postlink'
+    },
+    user_cards_info: {
+      get_saved_cards: 'GET /api/user/cards',
+      get_card_by_id: 'GET /api/user/cards/:cardId',
+      delete_card: 'DELETE /api/user/cards/:cardId'
     }
   });
 });
@@ -47,6 +72,9 @@ router.use('/businesses', businessRoutes);
 router.use('/orders', orderRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/delivery', deliveryRoutes);
+router.use('/addresses', addressRoutes);
+router.use('/payments', paymentRoutes);
+router.use('/user', userCardsRoutes);
 router.use('/employee/auth', employeeAuthRoutes);
 
 export default router;

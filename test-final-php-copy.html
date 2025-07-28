@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎯 ФИНАЛЬНЫЙ ТЕСТ - Точная копия PHP</title>
+    <script src="https://epay.homebank.kz/payform/payment-api.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .alert {
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .alert-success { background-color: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .alert-danger { background-color: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .alert-warning { background-color: #fff3cd; color: #856404; border: 1px solid #ffeaa7; }
+        .alert-info { background-color: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 10px 5px;
+            font-size: 14px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { 
+            background-color: #6c757d; 
+            cursor: not-allowed; 
+        }
+        .php-code {
+            background-color: #2d3748;
+            color: #e2e8f0;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+        }
+        .comparison {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .php-side, .js-side {
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .php-side {
+            background-color: #f8f9fa;
+            border-left: 4px solid #6c757d;
+        }
+        .js-side {
+            background-color: #e7f3ff;
+            border-left: 4px solid #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 ФИНАЛЬНЫЙ ТЕСТ - Точная копия PHP</h1>
+        
+        <div class="alert alert-info">
+            <strong>📋 Цель:</strong> Воспроизвести точную структуру из рабочего PHP кода для исправления timeout
+        </div>
+
+        <div class="comparison">
+            <div class="php-side">
+                <h3>🐘 PHP Код (рабочий)</h3>
+                <div class="php-code">
+var createPaymentObject = function(auth, invoiceId, amount) {
+    var paymentObject = {
+        invoiceId: invoiceId,
+        backLink: "https://chorenn.naliv.kz/success",
+        failureBackLink: "https://chorenn.naliv.kz/failure",
+        postLink: "https://chorenn.naliv.kz/api/payment.php",
+        language: "rus",
+        description: "Регистрация карты",
+        accountId: "'.$client_id.'",
+        terminal: "bb4dec49-6e30-41d0-b16b-8ba1831a854b",
+        amount: amount,
+        currency: "USD", // ✅ КЛЮЧ!
+        cardSave: true,
+        paymentType: "cardVerification"
+    };
+    paymentObject.auth = auth;
+    return paymentObject;
+};
+
+halyk.cardverification(createPaymentObject(auth, invoiceId, amount));
+                </div>
+            </div>
+
+            <div class="js-side">
+                <h3>🟨 JavaScript (наша копия)</h3>
+                <div class="php-code" style="background-color: #1e3a5f;">
+var createPaymentObject = function(auth, invoiceId, amount) {
+    var paymentObject = {
+        invoiceId: invoiceId,
+        backLink: "https://chorenn.naliv.kz/success",
+        failureBackLink: "https://chorenn.naliv.kz/failure",
+        postLink: "https://chorenn.naliv.kz/api/payment.php",
+        language: "rus",
+        description: "Регистрация карты",
+        accountId: "252",
+        terminal: "bb4dec49-6e30-41d0-b16b-8ba1831a854b",
+        amount: amount,
+        currency: "USD", // ✅ ИСПРАВЛЕНО!
+        cardSave: true,
+        paymentType: "cardVerification"
+    };
+    paymentObject.auth = auth;
+    return paymentObject;
+};
+
+halyk.cardverification(createPaymentObject(auth, invoiceId, amount));
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-success">
+            <strong>✅ Ключевые исправления:</strong><br>
+            • Валюта изменена с KZT на <strong>USD</strong><br>
+            • Структура объекта точно как в PHP<br>
+            • Используется <code>halyk.cardverification()</code><br>
+            • Все URL и параметры соответствуют рабочему коду
+        </div>
+
+        <div style="text-align: center; margin: 20px 0;">
+            <button onclick="testExactPHPCopy()" id="testBtn">🚀 ТЕСТ: Точная копия PHP</button>
+            <button onclick="compareCurrencies()" id="compareBtn">⚖️ Сравнить валюты</button>
+            <button onclick="autoTest()" id="autoTestBtn">🔄 Автотест каждые 10 сек</button>
+        </div>
+
+        <div id="statusAlert" class="alert alert-info">
+            Готов к финальному тесту с исправленными параметрами
+        </div>
+
+        <div id="resultContainer" style="display: none;">
+            <h3>📊 Результаты тестирования:</h3>
+            <div id="testResults"></div>
+        </div>
+    </div>
+
+    <script>
+        let testResults = [];
+        let autoTestInterval = null;
+
+        function updateStatus(message, type = 'info') {
+            const statusAlert = document.getElementById('statusAlert');
+            statusAlert.className = `alert alert-${type}`;
+            statusAlert.innerHTML = message;
+        }
+
+        function addResult(test, currency, status, error = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            testResults.push({
+                timestamp,
+                test,
+                currency,
+                status,
+                error
+            });
+
+            displayResults();
+        }
+
+        function displayResults() {
+            const container = document.getElementById('resultContainer');
+            const resultsDiv = document.getElementById('testResults');
+            
+            const html = testResults.map(result => {
+                const statusClass = result.status === 'SUCCESS' ? 'alert-success' : 
+                                  result.status === 'TIMEOUT' ? 'alert-danger' : 'alert-warning';
+                
+                return `
+                    <div class="alert ${statusClass}" style="margin: 5px 0; padding: 10px;">
+                        <strong>[${result.timestamp}]</strong> ${result.test}<br>
+                        <strong>Валюта:</strong> ${result.currency} → <strong>${result.status}</strong>
+                        ${result.error ? `<br><em>Ошибка: ${result.error}</em>` : ''}
+                    </div>
+                `;
+            }).reverse().join('');
+
+            resultsDiv.innerHTML = html;
+            container.style.display = 'block';
+        }
+
+        function generateUniqueInvoiceId() {
+            const timestamp = Date.now();
+            const userId = 252;
+            const random = Math.floor(Math.random() * 100);
+            return `CARD${timestamp}${userId.toString().padStart(3, '0')}${random}`;
+        }
+
+        async function getFreshAuth(invoiceId) {
+            try {
+                const response = await fetch('http://localhost:3000/api/payments/save-card/test-init', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        userId: 252,
+                        amount: 0,
+                        invoiceId: invoiceId
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (!data.success) {
+                    throw new Error('Не удалось получить auth токен');
+                }
+
+                return data.data.auth;
+            } catch (error) {
+                console.error('Ошибка получения auth:', error);
+                throw error;
+            }
+        }
+
+        async function testExactPHPCopy() {
+            try {
+                document.getElementById('testBtn').disabled = true;
+                updateStatus('🚀 Тестирование точной копии PHP кода...', 'info');
+
+                const invoiceId = generateUniqueInvoiceId();
+                const auth = await getFreshAuth(invoiceId);
+
+                // ✅ ТОЧНАЯ КОПИЯ PHP КОДА
+                var createPaymentObject = function(auth, invoiceId, amount) {
+                    var paymentObject = {
+                        invoiceId: invoiceId,
+                        backLink: "https://chorenn.naliv.kz/success",
+                        failureBackLink: "https://chorenn.naliv.kz/failure",
+                        postLink: "https://chorenn.naliv.kz/api/payment.php",
+                        language: "rus",
+                        description: "Регистрация карты",
+                        accountId: "252",
+                        terminal: "bb4dec49-6e30-41d0-b16b-8ba1831a854b",
+                        amount: amount,
+                        currency: "USD", // ✅ КАК В PHP!
+                        cardSave: true,
+                        paymentType: "cardVerification"
+                    };
+                    paymentObject.auth = auth;
+                    return paymentObject;
+                };
+
+                const paymentObject = createPaymentObject(auth, invoiceId, 0);
+
+                setupCallbacks(invoiceId, 'PHP_COPY', 'USD');
+                console.log('🎯 Запуск точной копии PHP:', paymentObject);
+                
+                updateStatus('✅ Объект создан по PHP образцу. Запуск платежа...', 'success');
+                halyk.cardverification(paymentObject);
+
+            } catch (error) {
+                updateStatus(`❌ Ошибка PHP копии: ${error.message}`, 'danger');
+                addResult('PHP_COPY', 'USD', 'ERROR', error.message);
+            } finally {
+                document.getElementById('testBtn').disabled = false;
+            }
+        }
+
+        async function compareCurrencies() {
+            updateStatus('⚖️ Сравнение валют USD vs KZT...', 'info');
+            
+            // Тест с USD (как в PHP)
+            setTimeout(async () => {
+                try {
+                    const invoiceId1 = generateUniqueInvoiceId();
+                    const auth1 = await getFreshAuth(invoiceId1);
+                    
+                    const usdObject = {
+                        invoiceId: invoiceId1,
+                        backLink: "https://chorenn.naliv.kz/success",
+                        failureBackLink: "https://chorenn.naliv.kz/failure",
+                        postLink: "https://chorenn.naliv.kz/api/payment.php",
+                        language: "rus",
+                        description: "Тест USD",
+                        accountId: "252",
+                        terminal: "bb4dec49-6e30-41d0-b16b-8ba1831a854b",
+                        amount: 0,
+                        currency: "USD",
+                        cardSave: true,
+                        paymentType: "cardVerification",
+                        auth: auth1
+                    };
+
+                    setupCallbacks(invoiceId1, 'COMPARE_USD', 'USD');
+                    halyk.cardverification(usdObject);
+                } catch (error) {
+                    addResult('COMPARE_USD', 'USD', 'ERROR', error.message);
+                }
+            }, 1000);
+
+            // Тест с KZT
+            setTimeout(async () => {
+                try {
+                    const invoiceId2 = generateUniqueInvoiceId();
+                    const auth2 = await getFreshAuth(invoiceId2);
+                    
+                    const kztObject = {
+                        invoiceId: invoiceId2,
+                        backLink: "https://chorenn.naliv.kz/success",
+                        failureBackLink: "https://chorenn.naliv.kz/failure",
+                        postLink: "https://chorenn.naliv.kz/api/payment.php",
+                        language: "rus",
+                        description: "Тест KZT",
+                        accountId: "252",
+                        terminal: "bb4dec49-6e30-41d0-b16b-8ba1831a854b",
+                        amount: 0,
+                        currency: "KZT",
+                        cardSave: true,
+                        paymentType: "cardVerification",
+                        auth: auth2
+                    };
+
+                    setupCallbacks(invoiceId2, 'COMPARE_KZT', 'KZT');
+                    halyk.cardverification(kztObject);
+                } catch (error) {
+                    addResult('COMPARE_KZT', 'KZT', 'ERROR', error.message);
+                }
+            }, 3000);
+        }
+
+        function autoTest() {
+            if (autoTestInterval) {
+                clearInterval(autoTestInterval);
+                autoTestInterval = null;
+                document.getElementById('autoTestBtn').textContent = '🔄 Автотест каждые 10 сек';
+                return;
+            }
+
+            document.getElementById('autoTestBtn').textContent = '⏹️ Остановить автотест';
+            updateStatus('🔄 Автотест запущен: PHP копия каждые 10 секунд', 'info');
+            
+            autoTestInterval = setInterval(() => {
+                testExactPHPCopy();
+            }, 10000);
+        }
+
+        function setupCallbacks(invoiceId, testName, currency) {
+            window.halyk_success = function(data) {
+                console.log('✅ Успех:', data);
+                updateStatus(`🎉 УСПЕХ с ${currency}! Timeout исправлен!`, 'success');
+                addResult(testName, currency, 'SUCCESS');
+                
+                if (currency === 'USD') {
+                    updateStatus('🎯 РЕШЕНИЕ ПОДТВЕРЖДЕНО: USD исправляет timeout!', 'success');
+                }
+            };
+
+            window.halyk_failure = function(error) {
+                console.log('❌ Ошибка:', error);
+                
+                const errorMsg = error.message || 'Неизвестная ошибка';
+                
+                if (errorMsg.includes('истекло') || errorMsg.includes('timeout')) {
+                    updateStatus(`⏰ Timeout с ${currency}`, 'danger');
+                    addResult(testName, currency, 'TIMEOUT', errorMsg);
+                    
+                    if (currency === 'KZT') {
+                        updateStatus('✅ Подтверждено: KZT вызывает timeout, USD исправляет!', 'warning');
+                    } else {
+                        updateStatus('❌ Timeout даже с USD. Проверьте другие параметры.', 'danger');
+                    }
+                } else {
+                    updateStatus(`❌ Ошибка ${currency}: ${errorMsg}`, 'danger');
+                    addResult(testName, currency, 'ERROR', errorMsg);
+                }
+            };
+
+            window.halyk_cancelled = function() {
+                console.log('❌ Отменено пользователем');
+                updateStatus('❌ Операция отменена пользователем', 'info');
+                addResult(testName, currency, 'CANCELLED');
+            };
+        }
+
+        // Автозапуск при загрузке
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStatus('📋 Финальный тест готов. Нажмите "ТЕСТ: Точная копия PHP"', 'info');
+        });
+    </script>
+</body>
+</html>

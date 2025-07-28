@@ -18,18 +18,6 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
     // Проверяем валидность токена
     const decoded = AuthController.verifyToken(token);
 
-    // Проверяем, существует ли токен в базе данных (не был ли он отозван)
-    const tokenExists = await prisma.users_tokens.findFirst({
-      where: { 
-        token: token,
-        user_id: decoded.user_id
-      }
-    });
-
-    if (!tokenExists) {
-      throw createError(401, 'Токен недействителен или отозван');
-    }
-
     // Проверяем, существует ли пользователь
     const user = await prisma.user.findUnique({
       where: { user_id: decoded.user_id }
@@ -69,15 +57,12 @@ export const optionalAuth = async (req: AuthRequest, res: Response, next: NextFu
       // Проверяем валидность токена
       const decoded = AuthController.verifyToken(token);
 
-      // Проверяем, существует ли токен в базе данных
-      const tokenExists = await prisma.users_tokens.findFirst({
-        where: { 
-          token: token,
-          user_id: decoded.user_id
-        }
+      // Проверяем, существует ли пользователь
+      const user = await prisma.user.findUnique({
+        where: { user_id: decoded.user_id }
       });
 
-      if (tokenExists) {
+      if (user) {
         // Проверяем, существует ли пользователь
         const user = await prisma.user.findUnique({
           where: { user_id: decoded.user_id }

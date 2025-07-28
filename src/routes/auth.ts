@@ -13,6 +13,14 @@ router.post('/register', AuthController.register);
 // Body: { "phone": "+77077707600", "password": "password123" }
 router.post('/login', AuthController.login);
 
+// POST /api/auth/send-code - Отправка одноразового кода
+// Body: { "phone_number": "+77077707600" }
+router.post('/send-code', AuthController.sendCode);
+
+// POST /api/auth/verify-code - Авторизация по одноразовому коду
+// Body: { "phone_number": "+77077707600", "onetime_code": "1234" }
+router.post('/verify-code', AuthController.verifyCode);
+
 // POST /api/auth/logout - Выход из системы (требует авторизации)
 // Headers: { "Authorization": "Bearer <token>" }
 router.post('/logout', authenticateToken, AuthController.logout);

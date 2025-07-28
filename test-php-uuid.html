@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест PHP-style UUID Generation</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background: #f5f5f5; 
+        }
+        .container { 
+            background: white; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+        }
+        .test-button { 
+            background: #007cba; 
+            color: white; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 16px; 
+            margin: 10px 5px;
+        }
+        .test-button:hover { background: #005a85; }
+        .result { 
+            background: #f8f9fa; 
+            border: 1px solid #dee2e6; 
+            border-radius: 4px; 
+            padding: 15px; 
+            margin: 10px 0; 
+            font-family: monospace; 
+        }
+        .success { border-color: #28a745; background: #d4edda; }
+        .error { border-color: #dc3545; background: #f8d7da; }
+        .info { background: #e3f2fd; border-color: #2196f3; }
+        h1 { color: #333; }
+        h2 { color: #007cba; margin-top: 30px; }
+        .explanation { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 15px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Тест PHP-style UUID Generation</h1>
+        
+        <div class="explanation">
+            <h3>📋 Объяснение проблемы:</h3>
+            <p><strong>PHP код генерирует order_uuid:</strong> <code>CONCAT(UNIX_TIMESTAMP(orders.log_timestamp), orders.order_id)</code></p>
+            <p><strong>Проблема:</strong> TypeScript генерировал UUID ДО создания заказа, а PHP — ПОСЛЕ</p>
+            <p><strong>Решение:</strong> Изменили логику — создаём заказ с временным UUID, затем обновляем на PHP-style</p>
+        </div>
+
+        <h2>🔧 Тестирование генерации UUID</h2>
+        <button class="test-button" onclick="testPhpUuid()">Тест PHP-style UUID</button>
+        <button class="test-button" onclick="testOrderCreation()">Тест создания заказа (требует токен)</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000/api';
+        
+        async function testPhpUuid() {
+            showResult('Тестируем генерацию PHP-style UUID...', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/orders/test-php-uuid`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    showResult(`
+                        ✅ PHP-style UUID генерация успешна!
+                        
+                        Временная метка: ${data.data.mock_timestamp}
+                        ID заказа: ${data.data.mock_order_id}
+                        Unix timestamp: ${data.data.unix_timestamp}
+                        PHP-style UUID: ${data.data.php_style_uuid}
+                        
+                        ${data.data.explanation}
+                    `, 'success');
+                } else {
+                    showResult(`❌ Ошибка: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Ошибка сети: ${error.message}`, 'error');
+            }
+        }
+
+        async function testOrderCreation() {
+            showResult('Для теста создания заказа нужен токен аутентификации...', 'info');
+            
+            const token = prompt('Введите Bearer токен (или оставьте пустым для демо):');
+            if (!token) {
+                showResult('ℹ️ Тест пропущен - требуется токен аутентификации', 'info');
+                return;
+            }
+
+            try {
+                const testData = {
+                    business_id: 1,
+                    items: [{ item_id: 1, amount: 1, price: 1000 }],
+                    delivery_type: 1,
+                    delivery_date: new Date().toISOString(),
+                    saved_card_id: 1,
+                    address_id: 1
+                };
+
+                const response = await fetch(`${API_BASE}/orders/create-user-order`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(testData)
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showResult(`
+                        ✅ Заказ создан успешно!
+                        
+                        ID заказа: ${data.data.order_id}
+                        Order UUID: ${data.data.order_uuid}
+                        Общая стоимость: ${data.data.total_cost}
+                        Статус: ${data.data.status}
+                        
+                        🎯 UUID теперь генерируется по PHP логике: timestamp + order_id
+                    `, 'success');
+                } else {
+                    showResult(`❌ Ошибка создания заказа: ${data.message || data.error}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Ошибка сети: ${error.message}`, 'error');
+            }
+        }
+
+        function showResult(message, type) {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.innerHTML = `<pre>${message}</pre>`;
+            results.appendChild(div);
+            div.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Показываем начальную информацию
+        window.onload = function() {
+            showResult(`
+🚀 Naliv Backend - PHP-style UUID Test
+
+Сервер: ${API_BASE}
+Статус: Готов к тестированию
+
+Доступные тесты:
+1. Тест генерации PHP-style UUID (не требует токен)
+2. Тест создания заказа (требует токен аутентификации)
+            `, 'info');
+        };
+    </script>
+</body>
+</html>

@@ -26,10 +26,13 @@ class App {
     // Безопасность
     this.app.use(helmet());
     
-    // CORS
+    // CORS - разрешаем запросы из всех источников
     this.app.use(cors({
-      origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-      credentials: true
+      origin: '*', // Разрешаем все источники
+      credentials: true,
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+      maxAge: 86400 // Access-Control-Max-Age: 86400 секунд (24 часа)
     }));
     
     // Парсинг JSON

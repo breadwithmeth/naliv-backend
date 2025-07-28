@@ -46,6 +46,38 @@ curl http://localhost:3000/api/businesses
 curl "http://localhost:3000/api/businesses/1/items?page=1&limit=10"
 ```
 
+## Categories
+
+### Get All Categories with Subcategories
+```bash
+curl -X GET "http://localhost:3000/api/categories"
+```
+
+### Get Categories for Specific Business
+```bash
+curl -X GET "http://localhost:3000/api/categories?business_id=2"
+```
+
+### Get Category by ID
+```bash
+curl -X GET "http://localhost:3000/api/categories/37"
+```
+
+### Get Category by ID with Item Counts
+```bash
+curl -X GET "http://localhost:3000/api/categories/37?business_id=2"
+```
+
+### Get Root Categories Only
+```bash
+curl -X GET "http://localhost:3000/api/categories/root"
+```
+
+### Get Items by Category (including subcategories)
+```bash
+curl -X GET "http://localhost:3000/api/categories/37/items?business_id=2&page=1&limit=10"
+```
+
 ## Users
 
 ### Get User Items by Business

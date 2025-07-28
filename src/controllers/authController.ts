@@ -4,6 +4,78 @@ import bcrypt from 'bcryptjs';
 import prisma from '../database';
 import { createError } from '../middleware/errorHandler';
 
+// Функция отправки SMS через Prelude v2 API
+async function sendSMSViaPrelude(phoneNumber: string): Promise<boolean> {
+  try {
+    const preludeApiUrl = process.env.PRELUDE_API_URL || 'https://api.prelude.dev/v2/verification';
+    const preludeApiKey = process.env.PRELUDE_API_KEY || 'sk_wIM7kLqD9rKaFfUkAawgQtY3VKWVWkj3';
+    
+    const requestBody = {
+      target: {
+        type: "phone_number",
+        value: phoneNumber
+      }
+    };
+    
+    const response = await fetch(preludeApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${preludeApiKey}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (response.ok) {
+      console.log(`SMS код успешно отправлен через Prelude на ${phoneNumber}`);
+      return true;
+    } else {
+      console.error(`Ошибка отправки SMS через Prelude: ${response.status} ${response.statusText}`);
+      return false;
+    }
+  } catch (error) {
+    console.error('Ошибка при отправке SMS через Prelude:', error);
+    return false;
+  }
+}
+
+// Функция проверки кода через Prelude v2 API
+async function checkVerificationCodeViaPrelude(phoneNumber: string, code: string): Promise<boolean> {
+  try {
+    const preludeApiUrl = process.env.PRELUDE_CHECK_URL || 'https://api.prelude.dev/v2/verification/check';
+    const preludeApiKey = process.env.PRELUDE_API_KEY || 'sk_wIM7kLqD9rKaFfUkAawgQtY3VKWVWkj3';
+    
+    const payload = {
+      target: {
+        type: "phone_number",
+        value: phoneNumber
+      },
+      code: code
+    };
+    
+    const response = await fetch(preludeApiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${preludeApiKey}`
+      },
+      body: JSON.stringify(payload)
+    });
+
+    if (response.ok) {
+      const result = await response.json() as { status?: string };
+      // Успех означает status === "success"
+      return result.status === 'success';
+    } else {
+      console.error(`Ошибка проверки кода через Prelude: ${response.status} ${response.statusText}`);
+      return false;
+    }
+  } catch (error) {
+    console.error('Ошибка при проверке кода через Prelude:', error);
+    return false;
+  }
+}
+
 // Интерфейсы для типизации
 interface AuthRequest extends Request {
   user?: {
@@ -355,6 +427,176 @@ export class AuthController {
       return jwt.verify(token, secret) as JWTPayload;
     } catch (error) {
       throw createError(401, 'Недействительный токен');
+    }
+  }
+
+  /**
+   * Авторизация по одноразовому коду
+   * POST /auth/verify-code
+   */
+  static async verifyCode(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { phone_number, onetime_code } = req.body;
+
+      if (!phone_number || !onetime_code) {
+        return next(createError(400, 'Номер телефона и одноразовый код обязательны'));
+      }
+
+      // Валидация формата номера телефона (+77077707600)
+      const phoneRegex = /^\+7\d{10}$/;
+      if (!phoneRegex.test(phone_number)) {
+        return next(createError(400, 'Неверный формат номера телефона. Используйте формат +77077707600'));
+      }
+
+      // Проверяем код через Prelude API
+      const isCodeValid = await checkVerificationCodeViaPrelude(phone_number, onetime_code);
+      
+      if (!isCodeValid) {
+        return next(createError(401, 'Неверный код подтверждения'));
+      }
+
+      // Проверяем, что для этого номера был запрос на верификацию
+      const verification = await prisma.phone_number_verify.findFirst({
+        where: {
+          phone_number: phone_number,
+          onetime_code: 'PRELUDE',
+          is_used: 0
+        },
+        orderBy: {
+          log_timestamp: 'desc'
+        }
+      });
+
+      if (!verification) {
+        return next(createError(401, 'Не найден запрос на верификацию для данного номера'));
+      }
+
+      // Отмечаем верификацию как использованную
+      await prisma.phone_number_verify.update({
+        where: { verification_id: verification.verification_id },
+        data: { is_used: 1 }
+      });
+
+      // Ищем пользователя по номеру телефона
+      let user = await prisma.user.findFirst({
+        where: { login: phone_number }
+      });
+
+      // Если пользователь не существует, создаем его
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            login: phone_number
+          }
+        });
+
+        // Создаем бонусную карту для нового пользователя
+        await prisma.bonus_cards.create({
+          data: {
+            user_id: user.user_id,
+            card_uuid: `${Date.now()}${Math.random().toString(36).substr(2, 9)}` // Простая генерация UUID
+          }
+        });
+      }
+
+      // Удаляем старые токены пользователя (опционально)
+      await prisma.users_tokens.deleteMany({
+        where: { user_id: user.user_id }
+      });
+
+      // Создаем новый токен для пользователя
+      const tokenData = await prisma.users_tokens.create({
+        data: {
+          user_id: user.user_id,
+          token: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${user.user_id}` // Простая генерация токена
+        }
+      });
+
+      // Создаем JWT токен
+      const jwtPayload: JWTPayload = {
+        user_id: user.user_id,
+        login: user.login || phone_number
+      };
+
+      const jwtToken = AuthController.generateToken(jwtPayload);
+
+      res.status(202).json({
+        success: true,
+        data: {
+          user: {
+            user_id: user.user_id,
+            name: user.name,
+            login: user.login,
+            log_timestamp: user.log_timestamp
+          },
+          token: jwtToken,
+          session_token: tokenData.token
+        },
+        message: 'Авторизация успешна'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка авторизации по коду:', error);
+      next(createError(500, `Ошибка авторизации: ${error.message}`));
+    }
+  }
+
+  /**
+   * Отправка одноразового кода (заглушка)
+   * POST /auth/send-code
+   */
+  static async sendCode(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { phone_number } = req.body;
+
+      if (!phone_number) {
+        return next(createError(400, 'Номер телефона обязателен'));
+      }
+
+      // Валидация формата номера телефона
+      const phoneRegex = /^\+7\d{10}$/;
+      if (!phoneRegex.test(phone_number)) {
+        return next(createError(400, 'Неверный формат номера телефона. Используйте формат +77077707600'));
+      }
+
+      // Удаляем старые неиспользованные коды для этого номера
+      await prisma.phone_number_verify.deleteMany({
+        where: {
+          phone_number: phone_number,
+          is_used: 0
+        }
+      });
+
+      // Отправляем запрос на отправку кода через Prelude
+      // Prelude сам генерирует и отправляет код
+      const smsSent = await sendSMSViaPrelude(phone_number);
+      
+      if (!smsSent) {
+        return next(createError(500, 'Ошибка отправки SMS. Попробуйте позже'));
+      }
+
+      // Создаем запись в базе данных для отслеживания запроса верификации
+      // Код будет проверяться напрямую через Prelude API
+      await prisma.phone_number_verify.create({
+        data: {
+          phone_number: phone_number,
+          onetime_code: 'PRELUDE', // Короткий маркер что код управляется Prelude
+          is_used: 0
+        }
+      });
+
+      res.json({
+        success: true,
+        data: {
+          phone_number: phone_number,
+          message: "Код отправлен на указанный номер"
+        },
+        message: 'Код отправлен'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка отправки кода:', error);
+      next(createError(500, `Ошибка отправки кода: ${error.message}`));
     }
   }
 }

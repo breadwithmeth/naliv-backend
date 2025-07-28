@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Full HTML Response</title>
+    <script src="https://epay.homebank.kz/payform/payment-api.js"></script>
+</head>
+<body>
+    <h1>Тестирование полного HTML ответа</h1>
+    <button onclick="testInitCardSave()">Тест инициализации сохранения карты</button>
+    <div id="output"></div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000';
+        
+        function log(message) {
+            const output = document.getElementById('output');
+            output.innerHTML += '<p>' + new Date().toLocaleTimeString() + ': ' + message + '</p>';
+            console.log(message);
+        }
+
+        async function testInitCardSave() {
+            try {
+                log('Инициализация сохранения карты...');
+                
+                const response = await fetch(`${API_BASE_URL}/api/payments/save-card/init`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VyX2lkIjoyNTIsInVzZXJuYW1lIjoic2hydiIsImVtYWlsIjoic2hydk5hbGl2QGdtYWlsLmNvbSIsImlhdCI6MTczNzk5MTA1NSwiZXhwIjoxNzM3OTk0NjU1fQ.LhCYSfhcLGIeHGU5w_fwM3j0bVrGM-IHhzK6EWuP0QY'
+                    },
+                    body: JSON.stringify({
+                        backLink: "https://chorenn.naliv.kz/success",
+                        failureBackLink: "https://chorenn.naliv.kz/failure", 
+                        postLink: "https://chorenn.naliv.kz/api/payment.php"
+                    })
+                });
+
+                if (response.headers.get('content-type')?.includes('text/html')) {
+                    log('✅ Получен HTML ответ!');
+                    const html = await response.text();
+                    log('HTML содержит Halyk библиотеку: ' + (html.includes('payment-api.js') ? 'Да' : 'Нет'));
+                    log('HTML содержит halyk.cardverification: ' + (html.includes('halyk.cardverification') ? 'Да' : 'Нет'));
+                    log('HTML содержит токен auth: ' + (html.includes('"access_token"') ? 'Да' : 'Нет'));
+                    
+                    // Показываем начало HTML
+                    const preview = html.substring(0, 500) + '...';
+                    log('Предварительный просмотр HTML: ' + preview);
+                    
+                    // Можно даже открыть в новом окне для тестирования
+                    // const newWindow = window.open('', '_blank');
+                    // newWindow.document.write(html);
+                } else {
+                    const data = await response.json();
+                    log('❌ Получен JSON вместо HTML: ' + JSON.stringify(data, null, 2));
+                }
+
+            } catch (error) {
+                log('❌ Ошибка: ' + error.message);
+            }
+        }
+
+        log('Готов к тестированию полного HTML ответа');
+    </script>
+</body>
+</html>

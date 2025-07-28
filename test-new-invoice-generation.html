@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест новой генерации Invoice ID</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #f9f9f9;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .success {
+            color: #28a745;
+        }
+        .error {
+            color: #dc3545;
+        }
+        .info {
+            color: #17a2b8;
+        }
+        .invoice-display {
+            font-weight: bold;
+            font-size: 1.2em;
+            color: #007bff;
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Тестирование новой системы генерации Invoice ID</h1>
+        
+        <div class="test-section">
+            <h3>Информация о новой системе</h3>
+            <ul>
+                <li><strong>Формат:</strong> CARD{timestamp}{userID}{random}{refresh}</li>
+                <li><strong>Длина:</strong> Максимум 20 символов</li>
+                <li><strong>Уникальность:</strong> Проверка в БД (orders + halyk_saved_cards)</li>
+                <li><strong>Повторные попытки:</strong> До 5 попыток с задержкой 10мс</li>
+                <li><strong>Fallback:</strong> UUID при неудаче</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h3>Тест 1: Инициализация сохранения карты</h3>
+            <p>Проверим генерацию invoiceId для первичного сохранения карты</p>
+            <button onclick="testInitCardSave()">Запустить тест инициализации</button>
+            <div id="initResult" class="log"></div>
+            <div id="initInvoiceId" class="invoice-display" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Тест 2: Обновление данных карты</h3>
+            <p>Проверим генерацию invoiceId для обновления (refresh=true)</p>
+            <button onclick="testRefreshCardSave()">Запустить тест обновления</button>
+            <div id="refreshResult" class="log"></div>
+            <div id="refreshInvoiceId" class="invoice-display" style="display: none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Тест 3: Множественная генерация</h3>
+            <p>Проверим уникальность при множественных вызовах</p>
+            <button onclick="testMultipleGeneration()">Генерировать 5 invoiceId</button>
+            <div id="multipleResult" class="log"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Тест 4: Проверка совместимости с Halyk Bank</h3>
+            <p>Проверим, принимает ли Halyk Bank новые invoiceId</p>
+            <button onclick="testHalykCompatibility()">Тест совместимости</button>
+            <div id="halykResult" class="log"></div>
+        </div>
+
+        <div class="test-section">
+            <h3>Логи сервера</h3>
+            <div id="serverLogs" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000/api';
+        const testUserId = 39102; // Тестовый пользователь
+
+        function log(elementId, message, type = 'info') {
+            const element = document.getElementById(elementId);
+            const timestamp = new Date().toLocaleTimeString();
+            const colorClass = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
+            element.innerHTML += `<span class="${colorClass}">[${timestamp}] ${message}</span>\n`;
+            element.scrollTop = element.scrollHeight;
+        }
+
+        function displayInvoiceId(elementId, invoiceId) {
+            const element = document.getElementById(elementId);
+            element.textContent = `Generated Invoice ID: ${invoiceId}`;
+            element.style.display = 'block';
+        }
+
+        async function makeRequest(endpoint, options = {}) {
+            const token = 'test-token'; // Для тестирования
+            const defaultOptions = {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            };
+            
+            return fetch(`${API_BASE_URL}${endpoint}`, {
+                ...defaultOptions,
+                ...options,
+                headers: { ...defaultOptions.headers, ...options.headers }
+            });
+        }
+
+        async function testInitCardSave() {
+            log('initResult', 'Запуск теста инициализации сохранения карты...');
+            
+            try {
+                const response = await makeRequest('/payments/save-card/init', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        userId: testUserId,
+                        description: 'Тест новой генерации invoiceId'
+                    })
+                });
+
+                const data = await response.json();
+                log('initResult', `Ответ сервера: ${JSON.stringify(data, null, 2)}`, 'info');
+
+                if (data.success) {
+                    const invoiceId = data.data.invoiceId;
+                    displayInvoiceId('initInvoiceId', invoiceId);
+                    log('initResult', `✅ Invoice ID успешно сгенерирован: ${invoiceId}`, 'success');
+                    
+                    // Анализ формата
+                    analyzeInvoiceId('initResult', invoiceId, false);
+                } else {
+                    log('initResult', `❌ Ошибка: ${data.message}`, 'error');
+                }
+            } catch (error) {
+                log('initResult', `❌ Сетевая ошибка: ${error.message}`, 'error');
+            }
+        }
+
+        async function testRefreshCardSave() {
+            log('refreshResult', 'Запуск теста обновления данных карты...');
+            
+            try {
+                // Сначала создаем карту для обновления
+                const initResponse = await makeRequest('/payments/save-card/init', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        userId: testUserId,
+                        description: 'Карта для теста обновления'
+                    })
+                });
+
+                const initData = await initResponse.json();
+                if (!initData.success) {
+                    throw new Error('Не удалось создать карту для теста');
+                }
+
+                const originalInvoiceId = initData.data.invoiceId;
+                log('refreshResult', `Создана карта с invoiceId: ${originalInvoiceId}`);
+
+                // Теперь тестируем обновление
+                const refreshResponse = await makeRequest('/payments/save-card/refresh', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        userId: testUserId,
+                        originalInvoiceId: originalInvoiceId
+                    })
+                });
+
+                const refreshData = await refreshResponse.json();
+                log('refreshResult', `Ответ на обновление: ${JSON.stringify(refreshData, null, 2)}`, 'info');
+
+                if (refreshData.success) {
+                    const newInvoiceId = refreshData.data.invoiceId;
+                    displayInvoiceId('refreshInvoiceId', newInvoiceId);
+                    log('refreshResult', `✅ Новый Invoice ID: ${newInvoiceId}`, 'success');
+                    
+                    // Анализ формата
+                    analyzeInvoiceId('refreshResult', newInvoiceId, true);
+                } else {
+                    log('refreshResult', `❌ Ошибка обновления: ${refreshData.message}`, 'error');
+                }
+            } catch (error) {
+                log('refreshResult', `❌ Ошибка теста: ${error.message}`, 'error');
+            }
+        }
+
+        async function testMultipleGeneration() {
+            log('multipleResult', 'Запуск теста множественной генерации...');
+            const invoiceIds = [];
+
+            for (let i = 1; i <= 5; i++) {
+                try {
+                    log('multipleResult', `Генерация ${i}/5...`);
+                    
+                    const response = await makeRequest('/payments/save-card/init', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            userId: testUserId,
+                            description: `Тест генерации #${i}`
+                        })
+                    });
+
+                    const data = await response.json();
+                    if (data.success) {
+                        const invoiceId = data.data.invoiceId;
+                        invoiceIds.push(invoiceId);
+                        log('multipleResult', `${i}. ${invoiceId}`, 'success');
+                    } else {
+                        log('multipleResult', `${i}. Ошибка: ${data.message}`, 'error');
+                    }
+
+                    // Небольшая пауза между запросами
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } catch (error) {
+                    log('multipleResult', `${i}. Сетевая ошибка: ${error.message}`, 'error');
+                }
+            }
+
+            // Проверка уникальности
+            const uniqueIds = [...new Set(invoiceIds)];
+            log('multipleResult', `\n--- Анализ уникальности ---`);
+            log('multipleResult', `Сгенерировано: ${invoiceIds.length}`);
+            log('multipleResult', `Уникальных: ${uniqueIds.length}`);
+            
+            if (invoiceIds.length === uniqueIds.length) {
+                log('multipleResult', `✅ Все Invoice ID уникальны!`, 'success');
+            } else {
+                log('multipleResult', `❌ Найдены дубликаты!`, 'error');
+                const duplicates = invoiceIds.filter((id, index) => invoiceIds.indexOf(id) !== index);
+                log('multipleResult', `Дубликаты: ${duplicates.join(', ')}`, 'error');
+            }
+        }
+
+        async function testHalykCompatibility() {
+            log('halykResult', 'Тест совместимости с Halyk Bank API...');
+            
+            try {
+                const response = await makeRequest('/payments/save-card/init', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        userId: testUserId,
+                        description: 'Тест совместимости с Halyk Bank'
+                    })
+                });
+
+                const data = await response.json();
+                log('halykResult', `Ответ сервера: ${JSON.stringify(data, null, 2)}`, 'info');
+
+                if (data.success && data.data.halykResponse) {
+                    log('halykResult', `✅ Halyk Bank принял новый invoiceId!`, 'success');
+                    log('halykResult', `Token получен: ${data.data.halykResponse.access_token ? 'Да' : 'Нет'}`, 'success');
+                    log('halykResult', `Expires in: ${data.data.halykResponse.expires_in} секунд`, 'info');
+                } else {
+                    log('halykResult', `❌ Проблема с получением токена от Halyk Bank`, 'error');
+                }
+            } catch (error) {
+                log('halykResult', `❌ Ошибка теста: ${error.message}`, 'error');
+            }
+        }
+
+        function analyzeInvoiceId(logElementId, invoiceId, isRefresh) {
+            log(logElementId, `\n--- Анализ Invoice ID ---`);
+            log(logElementId, `ID: ${invoiceId}`);
+            log(logElementId, `Длина: ${invoiceId.length} символов`);
+            log(logElementId, `Префикс: ${invoiceId.startsWith('CARD') ? '✅ CARD' : '❌ Неверный префикс'}`);
+            log(logElementId, `Refresh флаг: ${isRefresh ? 'Ожидается 1' : 'Ожидается 0'}`);
+            
+            if (invoiceId.length <= 20) {
+                log(logElementId, `✅ Длина соответствует ограничениям Halyk Bank`, 'success');
+            } else {
+                log(logElementId, `❌ Превышена максимальная длина (20 символов)`, 'error');
+            }
+
+            // Попытка извлечь компоненты
+            if (invoiceId.startsWith('CARD') && invoiceId.length >= 8) {
+                const withoutPrefix = invoiceId.substring(4);
+                log(logElementId, `Компоненты после CARD: ${withoutPrefix}`);
+                
+                // Последний символ - refresh флаг
+                const refreshFlag = withoutPrefix.slice(-1);
+                log(logElementId, `Refresh флаг в ID: ${refreshFlag} ${refreshFlag === (isRefresh ? '1' : '0') ? '✅' : '❌'}`);
+            }
+        }
+
+        // Автообновление логов сервера (опционально)
+        setInterval(() => {
+            // Здесь можно добавить запрос к эндпоинту для получения логов сервера
+            // Пока просто показываем статус
+            const now = new Date().toLocaleTimeString();
+            if (document.getElementById('serverLogs').innerHTML === '') {
+                log('serverLogs', `Сервер запущен. Логи будут отображаться в консоли браузера и терминале.`);
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

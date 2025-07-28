@@ -31,16 +31,44 @@ export class BusinessController {
         ];
       }
 
+      // Построим динамический SQL запрос
+      let sqlQuery = `
+        SELECT 
+          b.business_id,
+          b.name,
+          b.description,
+          b.address,
+          b.lat,
+          b.lon,
+          b.logo,
+          b.img,
+          b.city,
+          b.enabled,
+          b.log_timestamp,
+          c.name as city_name
+        FROM businesses b
+        LEFT JOIN cities c ON c.city_id = b.city
+        WHERE b.enabled = 1
+      `;
+
+      const queryParams: any[] = [];
+
+      if (cityId) {
+        sqlQuery += ` AND b.city = ?`;
+        queryParams.push(cityId);
+      }
+
+      if (search) {
+        sqlQuery += ` AND (b.name LIKE ? OR b.description LIKE ? OR b.address LIKE ?)`;
+        queryParams.push(`%${search}%`, `%${search}%`, `%${search}%`);
+      }
+
+      sqlQuery += ` ORDER BY b.log_timestamp DESC LIMIT ? OFFSET ?`;
+      queryParams.push(limit, (page - 1) * limit);
+
       // Получаем бизнесы с пагинацией
       const [businesses, totalCount] = await Promise.all([
-        prisma.businesses.findMany({
-          where: whereConditions,
-          orderBy: {
-            log_timestamp: 'desc'
-          },
-          skip: (page - 1) * limit,
-          take: limit
-        }),
+        prisma.$queryRawUnsafe<any[]>(sqlQuery, ...queryParams),
         prisma.businesses.count({
           where: whereConditions
         })
@@ -53,7 +81,7 @@ export class BusinessController {
             id: business.business_id,
             name: business.name,
             description: business.description,
-            address: business.address,
+            address: business.city_name ? `${business.address}, ${business.city_name}` : business.address,
             lat: business.lat,
             lon: business.lon,
             logo: business.logo,
@@ -91,13 +119,31 @@ export class BusinessController {
         throw createError(400, 'Неверный ID бизнеса');
       }
 
-      const business = await prisma.businesses.findUnique({
-        where: { business_id: id }
-      });
+      const business = await prisma.$queryRaw<any[]>`
+        SELECT 
+          b.business_id,
+          b.name,
+          b.description,
+          b.address,
+          b.lat,
+          b.lon,
+          b.logo,
+          b.img,
+          b.city,
+          b.enabled,
+          b.log_timestamp,
+          b.organization_id,
+          c.name as city_name
+        FROM businesses b
+        LEFT JOIN cities c ON c.city_id = b.city
+        WHERE b.business_id = ${id}
+      `;
 
-      if (!business) {
+      if (!business || business.length === 0) {
         throw createError(404, 'Бизнес не найден');
       }
+
+      const businessData = business[0];
 
       // Получаем статистику товаров
       const itemsCount = await prisma.items.count({
@@ -132,18 +178,18 @@ export class BusinessController {
         success: true,
         data: {
           business: {
-            id: business.business_id,
-            name: business.name,
-            description: business.description,
-            address: business.address,
-            lat: business.lat,
-            lon: business.lon,
-            logo: business.logo,
-            img: business.img,
-            city_id: business.city,
-            enabled: business.enabled,
-            created_at: business.log_timestamp,
-            organization_id: business.organization_id
+            id: businessData.business_id,
+            name: businessData.name,
+            description: businessData.description,
+            address: businessData.city_name ? `${businessData.address}, ${businessData.city_name}` : businessData.address,
+            lat: businessData.lat,
+            lon: businessData.lon,
+            logo: businessData.logo,
+            img: businessData.img,
+            city_id: businessData.city,
+            enabled: businessData.enabled,
+            created_at: businessData.log_timestamp,
+            organization_id: businessData.organization_id
           },
           statistics: {
             total_items: itemsCount,
@@ -179,13 +225,24 @@ export class BusinessController {
       }
 
       // Проверяем существование бизнеса
-      const business = await prisma.businesses.findUnique({
-        where: { business_id: businessId }
-      });
+      const businessResult = await prisma.$queryRaw<any[]>`
+        SELECT 
+          b.business_id,
+          b.name,
+          b.address,
+          b.logo,
+          b.enabled,
+          c.name as city_name
+        FROM businesses b
+        LEFT JOIN cities c ON c.city_id = b.city
+        WHERE b.business_id = ${businessId}
+      `;
 
-      if (!business) {
+      if (!businessResult || businessResult.length === 0) {
         throw createError(404, 'Бизнес не найден');
       }
+
+      const business = businessResult[0];
 
       if (!business.enabled) {
         throw createError(403, 'Бизнес временно недоступен');
@@ -292,7 +349,7 @@ export class BusinessController {
           business: {
             id: business.business_id,
             name: business.name,
-            address: business.address,
+            address: business.city_name ? `${business.address}, ${business.city_name}` : business.address,
             logo: business.logo
           },
           pagination: {
@@ -326,13 +383,21 @@ export class BusinessController {
       }
 
       // Проверяем существование бизнеса
-      const business = await prisma.businesses.findUnique({
-        where: { business_id: businessId }
-      });
+      const businessResult = await prisma.$queryRaw<any[]>`
+        SELECT 
+          b.business_id,
+          b.name,
+          c.name as city_name
+        FROM businesses b
+        LEFT JOIN cities c ON c.city_id = b.city
+        WHERE b.business_id = ${businessId}
+      `;
 
-      if (!business) {
+      if (!businessResult || businessResult.length === 0) {
         throw createError(404, 'Бизнес не найден');
       }
+
+      const business = businessResult[0];
 
       // Получаем уникальные категории товаров этого бизнеса
       const categoryIds = await prisma.items.findMany({

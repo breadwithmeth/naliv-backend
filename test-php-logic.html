@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест нового API на основе PHP логики</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 900px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background: #f5f5f5; 
+        }
+        .container { 
+            background: white; 
+            padding: 25px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+            margin-bottom: 20px;
+        }
+        .test-button { 
+            background: #007cba; 
+            color: white; 
+            border: none; 
+            padding: 12px 24px; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 16px; 
+            margin: 10px 5px;
+        }
+        .test-button:hover { background: #005a85; }
+        .result { 
+            background: #f8f9fa; 
+            border: 1px solid #dee2e6; 
+            border-radius: 4px; 
+            padding: 15px; 
+            margin: 10px 0; 
+            font-family: monospace; 
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .success { border-color: #28a745; background: #d4edda; }
+        .error { border-color: #dc3545; background: #f8d7da; }
+        .info { background: #e3f2fd; border-color: #2196f3; }
+        h1 { color: #333; }
+        h2 { color: #007cba; margin-top: 30px; }
+        .explanation { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 4px; margin: 15px 0; }
+        .input-group { margin: 15px 0; }
+        .input-group label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .input-group input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .php-comparison { background: #e8f5e8; border: 1px solid #c3e6c3; padding: 15px; border-radius: 4px; margin: 15px 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Тест нового API на основе PHP логики</h1>
+        
+        <div class="explanation">
+            <h3>📋 Новая реализация создания заказа:</h3>
+            <p><strong>Основа:</strong> Полное соответствие PHP функции <code>createOrder4()</code></p>
+            <p><strong>UUID:</strong> <code>time() + order_id</code> как в PHP</p>
+            <p><strong>Транзакции:</strong> Использование Prisma транзакций</p>
+            <p><strong>Платежи:</strong> Точное повторение PHP функции <code>pay2()</code></p>
+            <p><strong>Токены:</strong> Идентичная логика <code>getToken()</code></p>
+        </div>
+
+        <div class="php-comparison">
+            <h3>📝 Сравнение с PHP:</h3>
+            <ul>
+                <li>✅ Создание заказа с минимальными полями (business_id, user_id, address_id, delivery_price, extra)</li>
+                <li>✅ UUID генерация: time() + order_id</li>
+                <li>✅ Статус 66 после создания заказа</li>
+                <li>✅ Проверка остатков товаров</li>
+                <li>✅ Использование последних цен из таблицы prices</li>
+                <li>✅ Обработка опций с parent_amount</li>
+                <li>✅ Бонусная система (25% от суммы заказа)</li>
+                <li>✅ Автоматическая оплата через Halyk Bank API</li>
+                <li>✅ Статус 0 после успешной инициации платежа</li>
+            </ul>
+        </div>
+
+        <h2>🧪 Тестирование API</h2>
+        
+        <div class="input-group">
+            <label for="tokenInput">Bearer токен:</label>
+            <input type="text" id="tokenInput" placeholder="Введите токен аутентификации">
+        </div>
+
+        <button class="test-button" onclick="testCreateOrder()">Тест создания заказа (новая логика)</button>
+        <button class="test-button" onclick="testWithBonus()">Тест с использованием бонусов</button>
+        <button class="test-button" onclick="testWithOptions()">Тест с опциями товаров</button>
+
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000/api';
+        
+        function getToken() {
+            const token = document.getElementById('tokenInput').value.trim();
+            if (!token) {
+                showResult('❌ Необходимо ввести токен аутентификации', 'error');
+                return null;
+            }
+            return token;
+        }
+
+        async function testCreateOrder() {
+            const token = getToken();
+            if (!token) return;
+
+            showResult('Тестируем создание заказа по новой PHP-логике...', 'info');
+            
+            try {
+                // Тестовые данные на основе PHP структуры
+                const testData = {
+                    business_id: 1,
+                    items: [
+                        {
+                            item_id: 1,
+                            amount: 2
+                            // Цена берется из базы данных (таблица items или prices)
+                        }
+                    ],
+                    delivery: true, // boolean для доставки
+                    bonus: false, // не используем бонусы
+                    extra: JSON.stringify({test: 'Тестовый заказ'}),
+                    card_id: 1 // ID сохраненной карты для автоматической оплаты
+                };
+
+                const response = await fetch(`${API_BASE}/orders/create-user-order`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(testData)
+                });
+
+                const data = await response.json();
+                
+                if (data.success) {
+                    showResult(`✅ Заказ создан успешно!
+                    
+Новая PHP-логика работает:
+- Используется транзакция
+- UUID: время + order_id
+- Автоматическая проверка остатков
+- Цены из базы данных
+- Автоматическая оплата инициирована
+
+Результат: ${JSON.stringify(data, null, 2)}`, 'success');
+                } else {
+                    showResult(`❌ Ошибка создания заказа: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Ошибка сети: ${error.message}`, 'error');
+            }
+        }
+
+        async function testWithBonus() {
+            const token = getToken();
+            if (!token) return;
+
+            showResult('Тестируем создание заказа с использованием бонусов...', 'info');
+            
+            try {
+                const testData = {
+                    business_id: 1,
+                    items: [
+                        {
+                            item_id: 1,
+                            amount: 3
+                        }
+                    ],
+                    delivery: true,
+                    bonus: true, // включаем использование бонусов (25% от суммы)
+                    extra: JSON.stringify({test: 'Заказ с бонусами'}),
+                    card_id: 1
+                };
+
+                const response = await fetch(`${API_BASE}/orders/create-user-order`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(testData)
+                });
+
+                const data = await response.json();
+                
+                showResult(data.success ? 
+                    `✅ Заказ с бонусами создан!\n\n${JSON.stringify(data, null, 2)}` :
+                    `❌ Ошибка: ${data.error}`, 
+                    data.success ? 'success' : 'error'
+                );
+            } catch (error) {
+                showResult(`❌ Ошибка сети: ${error.message}`, 'error');
+            }
+        }
+
+        async function testWithOptions() {
+            const token = getToken();
+            if (!token) return;
+
+            showResult('Тестируем создание заказа с опциями товаров...', 'info');
+            
+            try {
+                const testData = {
+                    business_id: 1,
+                    items: [
+                        {
+                            item_id: 1,
+                            amount: 1,
+                            options: [
+                                {
+                                    option_item_relation_id: 1,
+                                    price: 500,
+                                    parent_amount: 1 // 1 основной товар = 1 опция
+                                }
+                            ]
+                        }
+                    ],
+                    delivery: false, // без доставки
+                    bonus: false,
+                    extra: JSON.stringify({test: 'Заказ с опциями'}),
+                    card_id: 1
+                };
+
+                const response = await fetch(`${API_BASE}/orders/create-user-order`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(testData)
+                });
+
+                const data = await response.json();
+                
+                showResult(data.success ? 
+                    `✅ Заказ с опциями создан!\n\n${JSON.stringify(data, null, 2)}` :
+                    `❌ Ошибка: ${data.error}`, 
+                    data.success ? 'success' : 'error'
+                );
+            } catch (error) {
+                showResult(`❌ Ошибка сети: ${error.message}`, 'error');
+            }
+        }
+
+        function showResult(message, type) {
+            const results = document.getElementById('results');
+            const div = document.createElement('div');
+            div.className = `result ${type}`;
+            div.textContent = message;
+            results.appendChild(div);
+            div.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Показываем начальную информацию
+        window.onload = function() {
+            showResult(`🚀 Новый Naliv Backend API - PHP Logic Implementation
+
+Сервер: ${API_BASE}
+Статус: Готов к тестированию
+
+Новая реализация полностью основана на PHP коде:
+✅ createOrder4() - создание заказа
+✅ pay2() - автоматическая оплата
+✅ getToken() - получение токенов Halyk Bank
+
+Введите токен и протестируйте новую логику!`, 'info');
+        };
+    </script>
+</body>
+</html>

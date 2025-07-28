@@ -19,4 +19,13 @@ router.post('/check', DeliveryController.checkDeliveryZone);
  */
 router.get('/zones/:business_id', DeliveryController.getDeliveryZones);
 
+/**
+ * @route GET /api/delivery/calculate-by-address
+ * @desc Расчет стоимости доставки по business_id и address_id
+ * @query business_id - ID бизнеса
+ * @query address_id - ID адреса пользователя
+ * @returns { success: boolean, data: DeliveryResult, message: string }
+ */
+router.get('/calculate-by-address', DeliveryController.calculateDeliveryByAddress);
+
 export default router;
