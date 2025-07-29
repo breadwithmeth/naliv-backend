@@ -5,6 +5,37 @@ import axios from 'axios';
 
 const prisma = new PrismaClient();
 
+interface AuthRequest extends Request {
+  user?: {
+    user_id: number;
+    login: string;
+  };
+}
+
+interface CreateAddressRequest {
+  lat: number;
+  lon: number;
+  address: string;
+  name: string;
+  apartment?: string;
+  entrance?: string;
+  floor?: string;
+  other?: string;
+  city_id?: number;
+}
+
+interface UpdateAddressRequest {
+  lat?: number;
+  lon?: number;
+  address?: string;
+  name?: string;
+  apartment?: string;
+  entrance?: string;
+  floor?: string;
+  other?: string;
+  city_id?: number;
+}
+
 export class AddressController {
   /**
    * Поиск адресов через Яндекс.Карты
@@ -254,31 +285,6 @@ export class AddressController {
   }
 
   /**
-   * Получить все адреса пользователя
-   * GET /api/addresses
-   */
-  static async getUserAddresses(req: Request, res: Response, next: NextFunction) {
-    try {
-      const userId = (req as any).user.user_id;
-
-      const addresses = await prisma.user_addreses.findMany({
-        where: { user_id: userId },
-        orderBy: { address_id: 'desc' }
-      });
-
-      res.json({
-        success: true,
-        data: addresses,
-        message: 'Адреса получены'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка получения адресов:', error);
-      next(createError(500, `Ошибка получения адресов: ${error.message}`));
-    }
-  }
-
-  /**
    * Добавить новый адрес пользователя
    * POST /api/addresses
    */
@@ -506,6 +512,458 @@ export class AddressController {
     } catch (error: any) {
       console.error('Ошибка получения адреса:', error);
       next(createError(500, `Ошибка получения адреса: ${error.message}`));
+    }
+  }
+
+  /**
+   * Получение всех адресов пользователя
+   * GET /api/addresses/user
+   */
+  static async getUserAddresses(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      const addresses = await prisma.user_addreses.findMany({
+        where: {
+          user_id: req.user.user_id,
+          isDeleted: 0
+        },
+        orderBy: {
+          log_timestamp: 'desc'
+        }
+      });
+
+      res.json({
+        success: true,
+        data: {
+          addresses: addresses.map(address => ({
+            address_id: address.address_id,
+            lat: address.lat,
+            lon: address.lon,
+            address: address.address,
+            name: address.name,
+            apartment: address.apartment,
+            entrance: address.entrance,
+            floor: address.floor,
+            other: address.other,
+            city_id: address.city_id,
+            created_at: address.log_timestamp
+          }))
+        },
+        message: `Найдено ${addresses.length} адресов`
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка получения адресов:', error);
+      next(createError(500, `Ошибка получения адресов: ${error.message}`));
+    }
+  }
+
+  /**
+   * Получение конкретного адреса пользователя
+   * GET /api/addresses/user/:id
+   */
+  static async getUserAddressById(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      const addressId = parseInt(req.params.id);
+      if (isNaN(addressId)) {
+        return next(createError(400, 'Неверный ID адреса'));
+      }
+
+      const address = await prisma.user_addreses.findFirst({
+        where: {
+          address_id: addressId,
+          user_id: req.user.user_id,
+          isDeleted: 0
+        }
+      });
+
+      if (!address) {
+        return next(createError(404, 'Адрес не найден'));
+      }
+
+      res.json({
+        success: true,
+        data: {
+          address: {
+            address_id: address.address_id,
+            lat: address.lat,
+            lon: address.lon,
+            address: address.address,
+            name: address.name,
+            apartment: address.apartment,
+            entrance: address.entrance,
+            floor: address.floor,
+            other: address.other,
+            city_id: address.city_id,
+            created_at: address.log_timestamp
+          }
+        },
+        message: 'Адрес найден'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка получения адреса:', error);
+      next(createError(500, `Ошибка получения адреса: ${error.message}`));
+    }
+  }
+
+  /**
+   * Создание нового адреса
+   * POST /api/addresses/user
+   */
+  static async createUserAddress(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      const {
+        lat,
+        lon,
+        address,
+        name,
+        apartment = '',
+        entrance = '',
+        floor = '',
+        other = '',
+        city_id
+      }: CreateAddressRequest = req.body;
+
+      // Валидация обязательных полей
+      if (!lat || !lon || !address || !name) {
+        return next(createError(400, 'Не указаны обязательные поля: lat, lon, address, name'));
+      }
+
+      // Валидация координат
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        return next(createError(400, 'Некорректные координаты'));
+      }
+
+      // Проверяем количество адресов пользователя (лимит)
+      const existingAddresses = await prisma.user_addreses.count({
+        where: {
+          user_id: req.user.user_id,
+          isDeleted: 0
+        }
+      });
+
+      if (existingAddresses >= 10) {
+        return next(createError(400, 'Превышен лимит адресов (максимум 10)'));
+      }
+
+      const newAddress = await prisma.user_addreses.create({
+        data: {
+          user_id: req.user.user_id,
+          lat: lat,
+          lon: lon,
+          address: address.trim(),
+          name: name.trim(),
+          apartment: apartment.trim(),
+          entrance: entrance.trim(),
+          floor: floor.trim(),
+          other: other.trim(),
+          city_id: city_id || null,
+          log_timestamp: new Date()
+        }
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          address: {
+            address_id: newAddress.address_id,
+            lat: newAddress.lat,
+            lon: newAddress.lon,
+            address: newAddress.address,
+            name: newAddress.name,
+            apartment: newAddress.apartment,
+            entrance: newAddress.entrance,
+            floor: newAddress.floor,
+            other: newAddress.other,
+            city_id: newAddress.city_id,
+            created_at: newAddress.log_timestamp
+          }
+        },
+        message: 'Адрес успешно создан'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка создания адреса:', error);
+      next(createError(500, `Ошибка создания адреса: ${error.message}`));
+    }
+  }
+
+  /**
+   * Обновление адреса
+   * PUT /api/addresses/user/:id
+   */
+  static async updateUserAddress(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      const addressId = parseInt(req.params.id);
+      if (isNaN(addressId)) {
+        return next(createError(400, 'Неверный ID адреса'));
+      }
+
+      const {
+        lat,
+        lon,
+        address,
+        name,
+        apartment,
+        entrance,
+        floor,
+        other,
+        city_id
+      }: UpdateAddressRequest = req.body;
+
+      // Проверяем существование адреса и права доступа
+      const existingAddress = await prisma.user_addreses.findFirst({
+        where: {
+          address_id: addressId,
+          user_id: req.user.user_id,
+          isDeleted: 0
+        }
+      });
+
+      if (!existingAddress) {
+        return next(createError(404, 'Адрес не найден'));
+      }
+
+      // Валидация координат (если переданы)
+      if ((lat !== undefined && (lat < -90 || lat > 90)) || 
+          (lon !== undefined && (lon < -180 || lon > 180))) {
+        return next(createError(400, 'Некорректные координаты'));
+      }
+
+      // Подготавливаем данные для обновления
+      const updateData: any = {};
+      if (lat !== undefined) updateData.lat = lat;
+      if (lon !== undefined) updateData.lon = lon;
+      if (address !== undefined) updateData.address = address.trim();
+      if (name !== undefined) updateData.name = name.trim();
+      if (apartment !== undefined) updateData.apartment = apartment.trim();
+      if (entrance !== undefined) updateData.entrance = entrance.trim();
+      if (floor !== undefined) updateData.floor = floor.trim();
+      if (other !== undefined) updateData.other = other.trim();
+      if (city_id !== undefined) updateData.city_id = city_id;
+
+      const updatedAddress = await prisma.user_addreses.update({
+        where: { address_id: addressId },
+        data: updateData
+      });
+
+      res.json({
+        success: true,
+        data: {
+          address: {
+            address_id: updatedAddress.address_id,
+            lat: updatedAddress.lat,
+            lon: updatedAddress.lon,
+            address: updatedAddress.address,
+            name: updatedAddress.name,
+            apartment: updatedAddress.apartment,
+            entrance: updatedAddress.entrance,
+            floor: updatedAddress.floor,
+            other: updatedAddress.other,
+            city_id: updatedAddress.city_id,
+            created_at: updatedAddress.log_timestamp
+          }
+        },
+        message: 'Адрес успешно обновлен'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка обновления адреса:', error);
+      next(createError(500, `Ошибка обновления адреса: ${error.message}`));
+    }
+  }
+
+  /**
+   * Удаление адреса (мягкое удаление)
+   * DELETE /api/addresses/user/:id
+   */
+  static async deleteUserAddress(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      const addressId = parseInt(req.params.id);
+      if (isNaN(addressId)) {
+        return next(createError(400, 'Неверный ID адреса'));
+      }
+
+      // Проверяем существование адреса и права доступа
+      const existingAddress = await prisma.user_addreses.findFirst({
+        where: {
+          address_id: addressId,
+          user_id: req.user.user_id,
+          isDeleted: 0
+        }
+      });
+
+      if (!existingAddress) {
+        return next(createError(404, 'Адрес не найден'));
+      }
+
+      // Мягкое удаление
+      await prisma.user_addreses.update({
+        where: { address_id: addressId },
+        data: { isDeleted: 1 }
+      });
+
+      res.json({
+        success: true,
+        data: { address_id: addressId },
+        message: 'Адрес успешно удален'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка удаления адреса:', error);
+      next(createError(500, `Ошибка удаления адреса: ${error.message}`));
+    }
+  }
+
+  /**
+   * Проверка возможности доставки по адресу
+   * POST /api/addresses/check-delivery
+   */
+  static async checkDeliveryAvailability(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { lat, lon, business_id } = req.body;
+
+      if (!lat || !lon || !business_id) {
+        return next(createError(400, 'Не указаны обязательные поля: lat, lon, business_id'));
+      }
+
+      // Валидация координат
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        return next(createError(400, 'Некорректные координаты'));
+      }
+
+      // Импортируем DeliveryController для проверки зоны доставки
+      const { DeliveryController } = await import('./deliveryController');
+      
+      const deliveryResult = await DeliveryController.calculateDeliveryZone({
+        lat: Number(lat),
+        lon: Number(lon),
+        business_id: Number(business_id)
+      });
+
+      res.json({
+        success: true,
+        data: {
+          delivery_available: deliveryResult.in_zone,
+          delivery_price: deliveryResult.price,
+          delivery_type: deliveryResult.delivery_type,
+          message: deliveryResult.message,
+          max_distance: deliveryResult.max_distance,
+          current_distance: deliveryResult.current_distance
+        },
+        message: deliveryResult.in_zone ? 'Доставка доступна' : 'Доставка недоступна'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка проверки доставки:', error);
+      next(createError(500, `Ошибка проверки доставки: ${error.message}`));
+    }
+  }
+
+  /**
+   * Получение адресов с информацией о доставке
+   * GET /api/addresses/user/with-delivery?business_id=1
+   */
+  static async getUserAddressesWithDelivery(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      const businessId = req.query.business_id ? parseInt(req.query.business_id as string) : null;
+
+      const addresses = await prisma.user_addreses.findMany({
+        where: {
+          user_id: req.user.user_id,
+          isDeleted: 0
+        },
+        orderBy: {
+          log_timestamp: 'desc'
+        }
+      });
+
+      const addressesWithDelivery = [];
+
+      for (const address of addresses) {
+        let deliveryInfo = null;
+
+        if (businessId && address.lat && address.lon) {
+          try {
+            const { DeliveryController } = await import('./deliveryController');
+            
+            const deliveryResult = await DeliveryController.calculateDeliveryZone({
+              lat: Number(address.lat),
+              lon: Number(address.lon),
+              business_id: businessId,
+              address_id: address.address_id // Передаем address_id для кеширования
+            });
+
+            deliveryInfo = {
+              available: deliveryResult.in_zone,
+              price: deliveryResult.price,
+              delivery_type: deliveryResult.delivery_type,
+              message: deliveryResult.message,
+              distance: deliveryResult.current_distance
+            };
+          } catch (deliveryError) {
+            console.error('Ошибка проверки доставки для адреса:', address.address_id, deliveryError);
+            deliveryInfo = {
+              available: false,
+              price: false,
+              message: 'Ошибка проверки доставки',
+              distance: null
+            };
+          }
+        }
+
+        addressesWithDelivery.push({
+          address_id: address.address_id,
+          lat: address.lat,
+          lon: address.lon,
+          address: address.address,
+          name: address.name,
+          apartment: address.apartment,
+          entrance: address.entrance,
+          floor: address.floor,
+          other: address.other,
+          city_id: address.city_id,
+          created_at: address.log_timestamp,
+          delivery: deliveryInfo
+        });
+      }
+
+      res.json({
+        success: true,
+        data: {
+          addresses: addressesWithDelivery,
+          business_id: businessId
+        },
+        message: `Найдено ${addresses.length} адресов`
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка получения адресов с информацией о доставке:', error);
+      next(createError(500, `Ошибка получения адресов: ${error.message}`));
     }
   }
 }
