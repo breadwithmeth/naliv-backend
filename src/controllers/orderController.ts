@@ -11,6 +11,7 @@ import {
 } from '../types/orders';
 import { orders_delivery_type } from '@prisma/client';
 import { DeliveryController } from './deliveryController';
+import { NotificationController } from './notificationController';
 
 interface AuthRequest extends Request {
   user?: {
@@ -303,6 +304,25 @@ export class OrderController {
       if (card_id) {
         console.log('⚠️  ВНИМАНИЕ: card_id передан, но оплата не будет выполнена');
         console.log('Используйте отдельный endpoint POST /api/orders/:id/pay для оплаты заказа');
+      }
+
+      // Отправляем уведомление о создании заказа
+      try {
+        // Получаем информацию о бизнесе для уведомления
+        const businessInfo = await prisma.businesses.findUnique({
+          where: { business_id: business_id }
+        });
+
+        await NotificationController.sendOrderStatusNotification({
+          order_id: orderResult.order_id,
+          order_uuid: orderResult.order_uuid,
+          status: 'created',
+          business_name: businessInfo?.name || 'Неизвестное заведение'
+        });
+        console.log(`Уведомление о создании заказа ${orderResult.order_id} отправлено пользователю ${user_id}`);
+      } catch (notificationError) {
+        console.error('Ошибка отправки уведомления о создании заказа:', notificationError);
+        // Не прерываем выполнение, если уведомление не удалось отправить
       }
 
       res.status(201).json({
@@ -2442,7 +2462,7 @@ export class OrderController {
         return next(createError(400, 'Неверный статус заказа'));
       }
 
-      // Проверяем существование заказа
+      // Проверяем существование заказа и получаем информацию о пользователе
       const order = await prisma.orders.findUnique({
         where: { order_id: orderId }
       });
@@ -2450,6 +2470,11 @@ export class OrderController {
       if (!order) {
         return next(createError(404, 'Заказ не найден'));
       }
+
+      // Получаем информацию о бизнесе
+      const business = await prisma.businesses.findUnique({
+        where: { business_id: order.business_id || 1 }
+      });
 
       // Создаем новую запись статуса
       const statusRecord = await prisma.order_status.create({
@@ -2483,6 +2508,20 @@ export class OrderController {
           where: { order_id: orderId },
           data: updateData
         });
+      }
+
+      // Отправляем уведомление пользователю о смене статуса заказа
+      try {
+        await NotificationController.sendOrderStatusNotification({
+          order_id: orderId,
+          order_uuid: order.order_uuid || '',
+          status: status,
+          business_name: business?.name || 'Неизвестное заведение'
+        });
+        console.log(`Уведомление о смене статуса заказа ${orderId} отправлено пользователю ${order.user_id}`);
+      } catch (notificationError) {
+        console.error('Ошибка отправки уведомления:', notificationError);
+        // Не прерываем выполнение, если уведомление не удалось отправить
       }
 
       res.json({

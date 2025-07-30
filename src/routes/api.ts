@@ -9,6 +9,7 @@ import deliveryRoutes from './delivery';
 import addressRoutes from './addresses';
 import paymentRoutes from './payments';
 import userCardsRoutes from './userCards';
+import notificationRoutes from './notifications';
 
 const router = Router();
 
@@ -27,6 +28,7 @@ router.get('/', (req, res) => {
       delivery: '/api/delivery',
       addresses: '/api/addresses',
       payments: '/api/payments',
+      notifications: '/api/notifications',
       user_cards: '/api/user/cards',
       employee_auth: '/api/employee/auth',
       health: '/health'
@@ -61,6 +63,13 @@ router.get('/', (req, res) => {
       get_saved_cards: 'GET /api/user/cards',
       get_card_by_id: 'GET /api/user/cards/:cardId',
       delete_card: 'DELETE /api/user/cards/:cardId'
+    },
+    notifications_info: {
+      register_fcm_token: 'POST /api/notifications/register-token',
+      unregister_fcm_token: 'DELETE /api/notifications/unregister-token',
+      get_history: 'GET /api/notifications/history',
+      mark_as_read: 'POST /api/notifications/mark-as-read',
+      test_notification: 'POST /api/notifications/test'
     }
   });
 });
@@ -74,6 +83,7 @@ router.use('/categories', categoryRoutes);
 router.use('/delivery', deliveryRoutes);
 router.use('/addresses', addressRoutes);
 router.use('/payments', paymentRoutes);
+router.use('/notifications', notificationRoutes);
 router.use('/user', userCardsRoutes);
 router.use('/employee/auth', employeeAuthRoutes);
 

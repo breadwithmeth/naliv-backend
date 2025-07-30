@@ -140,7 +140,7 @@ export class PaymentController {
   }
 
   /**
-   * Генерация уникального invoiceId для сохранения карт
+   * Генерация уникального invoiceId для сохранения карт (только цифры)
    */
   private static generateCardInvoiceId(userId: number, isRefresh: boolean = false): string {
     // Используем полный timestamp с секундами для максимальной уникальности
@@ -152,12 +152,9 @@ export class PaymentController {
     const randomPart = Math.floor(Math.random() * 100).toString().padStart(2, '0'); // 2 случайные цифры
     const refreshFlag = isRefresh ? '1' : '0'; // 1 цифра для флага обновления
     
-    // Формат: CARD + timestamp(10) + milliseconds(3) + user(3) + random(2) + refresh(1) = 24 символа
-    const invoiceId = `CARD${timestamp}${milliseconds}${userPart}${randomPart}${refreshFlag}`;
-    
-    // Ограничиваем до 20 символов для совместимости с Halyk Bank, но сохраняем секунды
-    // Берем CARD + timestamp(10) + user(3) + random(2) + refresh(1) = 20 символов
-    return `CARD${timestamp}${userPart}${randomPart}${refreshFlag}`;
+    // Формат: timestamp(10) + milliseconds(3) + user(3) + random(2) + refresh(1) = 19 цифр
+    // Пример: 1753625477259025 (19 цифр)
+    return `${timestamp}${milliseconds}${userPart}${randomPart}${refreshFlag}`;
   }
 
   /**
@@ -204,8 +201,10 @@ export class PaymentController {
     }
 
     // Если не удалось сгенерировать уникальный ID за максимальное количество попыток
-    // Используем более длинный UUID как fallback
-    const fallbackId = `CARD${Date.now()}${Math.random().toString(36).substring(2)}`.slice(0, 20);
+    // Используем timestamp + случайные цифры как fallback
+    const fallbackTimestamp = Math.floor(Date.now() / 1000);
+    const fallbackRandom = Math.floor(Math.random() * 999999).toString().padStart(6, '0');
+    const fallbackId = `${fallbackTimestamp}${fallbackRandom}`;
     console.warn(`Использован fallback invoiceId: ${fallbackId} после ${maxAttempts} попыток`);
     return fallbackId;
   }
