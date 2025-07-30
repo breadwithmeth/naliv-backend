@@ -5,6 +5,42 @@ import axios from 'axios';
 
 const prisma = new PrismaClient();
 
+// Кеш для расчетов доставки в памяти приложения для ускорения
+const deliveryCache = new Map<string, any>();
+const addressCache = new Map<string, any>(); // Дополнительный кеш для адресов
+const CACHE_TTL = 5 * 60 * 1000; // 5 минут
+const ADDRESS_CACHE_TTL = 2 * 60 * 1000; // 2 минуты для адресов
+
+// Счетчик активных запросов для мониторинга производительности
+let activeDeliveryRequests = 0;
+const MAX_CONCURRENT_DELIVERY_REQUESTS = 5;
+
+// Очистка устаревших записей кеша каждые 10 минут
+setInterval(() => {
+  const now = Date.now();
+  let cleanedCount = 0;
+  
+  // Очистка кеша доставки
+  for (const [key, value] of deliveryCache.entries()) {
+    if ((now - value.timestamp) > CACHE_TTL) {
+      deliveryCache.delete(key);
+      cleanedCount++;
+    }
+  }
+  
+  // Очистка кеша адресов
+  for (const [key, value] of addressCache.entries()) {
+    if ((now - value.timestamp) > ADDRESS_CACHE_TTL) {
+      addressCache.delete(key);
+      cleanedCount++;
+    }
+  }
+  
+  if (cleanedCount > 0) {
+    console.log(`🧹 Очищено ${cleanedCount} устаревших записей из кеша доставки`);
+  }
+}, 10 * 60 * 1000); // 10 минут
+
 interface AuthRequest extends Request {
   user?: {
     user_id: number;
@@ -562,8 +598,8 @@ export class AddressController {
   }
 
   /**
-   * Получение конкретного адреса пользователя
-   * GET /api/addresses/user/:id
+   * Получение конкретного адреса пользователя с опциональной проверкой доставки
+   * GET /api/addresses/user/:id?business_id=1
    */
   static async getUserAddressById(req: AuthRequest, res: Response, next: NextFunction) {
     try {
@@ -572,6 +608,8 @@ export class AddressController {
       }
 
       const addressId = parseInt(req.params.id);
+      const businessId = req.query.business_id ? parseInt(req.query.business_id as string) : null;
+      
       if (isNaN(addressId)) {
         return next(createError(400, 'Неверный ID адреса'));
       }
@@ -585,32 +623,261 @@ export class AddressController {
       });
 
       if (!address) {
-        return next(createError(404, 'Адрес не найден'));
+        return next(createError(404, 'Адрес не найден или не принадлежит пользователю'));
+      }
+
+      let deliveryInfo = null;
+
+      // Если передан business_id, проверяем доставку
+      if (businessId && address.lat && address.lon) {
+        const cacheKey = `delivery_${businessId}_${address.lat}_${address.lon}_${address.address_id}`;
+        const cachedResult = deliveryCache.get(cacheKey);
+        
+        if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_TTL) {
+          deliveryInfo = cachedResult.data;
+        } else {
+          try {
+            const { DeliveryController } = await import('./deliveryController');
+            
+            const deliveryResult = await DeliveryController.calculateDeliveryZone({
+              lat: Number(address.lat),
+              lon: Number(address.lon),
+              business_id: businessId,
+              address_id: address.address_id
+            });
+
+            deliveryInfo = {
+              available: deliveryResult.in_zone,
+              price: deliveryResult.price,
+              delivery_type: deliveryResult.delivery_type,
+              message: deliveryResult.message,
+              distance: deliveryResult.current_distance
+            };
+
+            // Сохраняем в кеш
+            deliveryCache.set(cacheKey, {
+              data: deliveryInfo,
+              timestamp: Date.now()
+            });
+
+          } catch (deliveryError) {
+            console.error('Ошибка проверки доставки:', deliveryError);
+            deliveryInfo = {
+              available: false,
+              price: false,
+              message: 'Ошибка проверки доставки',
+              distance: null
+            };
+          }
+        }
+      }
+
+      const responseData: any = {
+        address: {
+          address_id: address.address_id,
+          lat: address.lat,
+          lon: address.lon,
+          address: address.address,
+          name: address.name,
+          apartment: address.apartment,
+          entrance: address.entrance,
+          floor: address.floor,
+          other: address.other,
+          city_id: address.city_id,
+          created_at: address.log_timestamp
+        }
+      };
+
+      if (deliveryInfo) {
+        responseData.address.delivery = deliveryInfo;
+        responseData.business_id = businessId;
       }
 
       res.json({
         success: true,
-        data: {
-          address: {
-            address_id: address.address_id,
-            lat: address.lat,
-            lon: address.lon,
-            address: address.address,
-            name: address.name,
-            apartment: address.apartment,
-            entrance: address.entrance,
-            floor: address.floor,
-            other: address.other,
-            city_id: address.city_id,
-            created_at: address.log_timestamp
-          }
-        },
-        message: 'Адрес найден'
+        data: responseData,
+        message: deliveryInfo ? 'Адрес найден с информацией о доставке' : 'Адрес найден'
       });
 
     } catch (error: any) {
       console.error('Ошибка получения адреса:', error);
       next(createError(500, `Ошибка получения адреса: ${error.message}`));
+    }
+  }
+
+  /**
+   * Получить выбранный адрес пользователя (последний выбранный)
+   * GET /api/addresses/user/selected?business_id=1
+   */
+  static async getSelectedAddress(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      const businessId = req.query.business_id ? parseInt(req.query.business_id as string) : null;
+
+      // Получаем последний выбранный адрес
+      const selectedRecord = await prisma.selected_address.findFirst({
+        where: {
+          user_id: req.user.user_id
+        },
+        orderBy: {
+          log_timestamp: 'desc'
+        }
+      });
+
+      if (!selectedRecord) {
+        return next(createError(404, 'У пользователя нет выбранного адреса'));
+      }
+
+      // Получаем полную информацию об адресе
+      const address = await prisma.user_addreses.findFirst({
+        where: {
+          address_id: selectedRecord.address_id,
+          user_id: req.user.user_id,
+          isDeleted: 0
+        }
+      });
+
+      if (!address) {
+        return next(createError(404, 'Выбранный адрес не найден или был удален'));
+      }
+
+      let deliveryInfo = null;
+
+      // Если передан business_id, проверяем доставку
+      if (businessId && address.lat && address.lon) {
+        const cacheKey = `delivery_${businessId}_${address.lat}_${address.lon}_${address.address_id}`;
+        const cachedResult = deliveryCache.get(cacheKey);
+        
+        if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_TTL) {
+          deliveryInfo = cachedResult.data;
+        } else {
+          try {
+            const { DeliveryController } = await import('./deliveryController');
+            
+            const deliveryResult = await DeliveryController.calculateDeliveryZone({
+              lat: Number(address.lat),
+              lon: Number(address.lon),
+              business_id: businessId,
+              address_id: address.address_id
+            });
+
+            deliveryInfo = {
+              available: deliveryResult.in_zone,
+              price: deliveryResult.price,
+              delivery_type: deliveryResult.delivery_type,
+              message: deliveryResult.message,
+              distance: deliveryResult.current_distance
+            };
+
+            // Сохраняем в кеш
+            deliveryCache.set(cacheKey, {
+              data: deliveryInfo,
+              timestamp: Date.now()
+            });
+
+          } catch (deliveryError) {
+            console.error('Ошибка проверки доставки:', deliveryError);
+            deliveryInfo = {
+              available: false,
+              price: false,
+              message: 'Ошибка проверки доставки',
+              distance: null
+            };
+          }
+        }
+      }
+
+      const responseData: any = {
+        selected_address: {
+          address_id: address.address_id,
+          lat: address.lat,
+          lon: address.lon,
+          address: address.address,
+          name: address.name,
+          apartment: address.apartment,
+          entrance: address.entrance,
+          floor: address.floor,
+          other: address.other,
+          city_id: address.city_id,
+          created_at: address.log_timestamp,
+          selected_at: selectedRecord.log_timestamp
+        }
+      };
+
+      if (deliveryInfo) {
+        responseData.selected_address.delivery = deliveryInfo;
+        responseData.business_id = businessId;
+      }
+
+      res.json({
+        success: true,
+        data: responseData,
+        message: deliveryInfo ? 'Выбранный адрес найден с информацией о доставке' : 'Выбранный адрес найден'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка получения выбранного адреса:', error);
+      next(createError(500, `Ошибка получения выбранного адреса: ${error.message}`));
+    }
+  }
+
+  /**
+   * Установить выбранный адрес пользователя
+   * POST /api/addresses/user/select
+   * Body: { address_id: number }
+   */
+  static async selectAddress(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      const { address_id } = req.body;
+
+      if (!address_id || isNaN(parseInt(address_id))) {
+        return next(createError(400, 'Не указан корректный address_id'));
+      }
+
+      const addressId = parseInt(address_id);
+
+      // Проверяем, что адрес существует и принадлежит пользователю
+      const address = await prisma.user_addreses.findFirst({
+        where: {
+          address_id: addressId,
+          user_id: req.user.user_id,
+          isDeleted: 0
+        }
+      });
+
+      if (!address) {
+        return next(createError(404, 'Адрес не найден или не принадлежит пользователю'));
+      }
+
+      // Создаем новую запись о выбранном адресе
+      const selectedAddress = await prisma.selected_address.create({
+        data: {
+          user_id: req.user.user_id,
+          address_id: addressId
+        }
+      });
+
+      res.json({
+        success: true,
+        data: {
+          selected_address_id: selectedAddress.relation_id,
+          address_id: addressId,
+          user_id: req.user.user_id,
+          selected_at: selectedAddress.log_timestamp
+        },
+        message: 'Адрес успешно выбран'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка выбора адреса:', error);
+      next(createError(500, `Ошибка выбора адреса: ${error.message}`));
     }
   }
 
@@ -885,12 +1152,16 @@ export class AddressController {
    * GET /api/addresses/user/with-delivery?business_id=1
    */
   static async getUserAddressesWithDelivery(req: AuthRequest, res: Response, next: NextFunction) {
+    const startTime = Date.now();
     try {
       if (!req.user) {
         return next(createError(401, 'Требуется авторизация'));
       }
 
       const businessId = req.query.business_id ? parseInt(req.query.business_id as string) : null;
+      const limit = req.query.limit ? Math.min(parseInt(req.query.limit as string), 50) : 20; // Максимум 50 адресов
+
+      console.log(`📍 Загрузка адресов пользователя ${req.user.user_id} с доставкой для бизнеса ${businessId}`);
 
       const addresses = await prisma.user_addreses.findMany({
         where: {
@@ -899,44 +1170,61 @@ export class AddressController {
         },
         orderBy: {
           log_timestamp: 'desc'
-        }
+        },
+        take: limit // Ограничиваем количество для производительности
       });
 
-      const addressesWithDelivery = [];
-
-      for (const address of addresses) {
+      // Используем параллельные запросы вместо последовательных для ускорения
+      const addressesWithDeliveryPromises = addresses.map(async (address) => {
         let deliveryInfo = null;
 
         if (businessId && address.lat && address.lon) {
-          try {
-            const { DeliveryController } = await import('./deliveryController');
-            
-            const deliveryResult = await DeliveryController.calculateDeliveryZone({
-              lat: Number(address.lat),
-              lon: Number(address.lon),
-              business_id: businessId,
-              address_id: address.address_id // Передаем address_id для кеширования
-            });
+          // Создаем ключ для кеша
+          const cacheKey = `delivery_${businessId}_${address.lat}_${address.lon}_${address.address_id}`;
+          const cachedResult = deliveryCache.get(cacheKey);
+          
+          // Проверяем кеш
+          if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_TTL) {
+            console.log(`🚀 Используем кеш для адреса ${address.address_id}`);
+            deliveryInfo = cachedResult.data;
+          } else {
+            try {
+              const { DeliveryController } = await import('./deliveryController');
+              
+              const deliveryResult = await DeliveryController.calculateDeliveryZone({
+                lat: Number(address.lat),
+                lon: Number(address.lon),
+                business_id: businessId,
+                address_id: address.address_id // Передаем address_id для кеширования
+              });
 
-            deliveryInfo = {
-              available: deliveryResult.in_zone,
-              price: deliveryResult.price,
-              delivery_type: deliveryResult.delivery_type,
-              message: deliveryResult.message,
-              distance: deliveryResult.current_distance
-            };
-          } catch (deliveryError) {
-            console.error('Ошибка проверки доставки для адреса:', address.address_id, deliveryError);
-            deliveryInfo = {
-              available: false,
-              price: false,
-              message: 'Ошибка проверки доставки',
-              distance: null
-            };
+              deliveryInfo = {
+                available: deliveryResult.in_zone,
+                price: deliveryResult.price,
+                delivery_type: deliveryResult.delivery_type,
+                message: deliveryResult.message,
+                distance: deliveryResult.current_distance
+              };
+
+              // Сохраняем в кеш
+              deliveryCache.set(cacheKey, {
+                data: deliveryInfo,
+                timestamp: Date.now()
+              });
+
+            } catch (deliveryError) {
+              console.error('Ошибка проверки доставки для адреса:', address.address_id, deliveryError);
+              deliveryInfo = {
+                available: false,
+                price: false,
+                message: 'Ошибка проверки доставки',
+                distance: null
+              };
+            }
           }
         }
 
-        addressesWithDelivery.push({
+        return {
           address_id: address.address_id,
           lat: address.lat,
           lon: address.lon,
@@ -949,20 +1237,28 @@ export class AddressController {
           city_id: address.city_id,
           created_at: address.log_timestamp,
           delivery: deliveryInfo
-        });
-      }
+        };
+      });
+
+      // Ожидаем завершения всех параллельных запросов
+      const addressesWithDelivery = await Promise.all(addressesWithDeliveryPromises);
+
+      const executionTime = Date.now() - startTime;
+      console.log(`⚡ Запрос адресов с доставкой выполнен за ${executionTime}мс`);
 
       res.json({
         success: true,
         data: {
           addresses: addressesWithDelivery,
-          business_id: businessId
+          business_id: businessId,
+          execution_time_ms: executionTime
         },
         message: `Найдено ${addresses.length} адресов`
       });
 
     } catch (error: any) {
-      console.error('Ошибка получения адресов с информацией о доставке:', error);
+      const executionTime = Date.now() - startTime;
+      console.error(`❌ Ошибка получения адресов с информацией о доставке (${executionTime}мс):`, error);
       next(createError(500, `Ошибка получения адресов: ${error.message}`));
     }
   }

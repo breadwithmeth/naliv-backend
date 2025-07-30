@@ -39,9 +39,13 @@ class App {
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true }));
     
-    // Логирование запросов
+    // Расширенное логирование запросов с информацией об IP
     this.app.use((req: Request, res: Response, next: NextFunction) => {
-      console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+      const ip = req.ip || req.connection.remoteAddress || 'unknown';
+      const userAgent = req.get('User-Agent') || 'unknown';
+      const timestamp = new Date().toISOString();
+      
+      console.log(`${timestamp} - ${req.method} ${req.path} | IP: ${ip} | UA: ${userAgent.substring(0, 50)}`);
       next();
     });
   }

@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест выбранного адреса</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .section {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin: 15px 0;
+            border-radius: 5px;
+        }
+        .result {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 3px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+        }
+        .error {
+            background-color: #ffe6e6;
+            color: #cc0000;
+        }
+        .success {
+            background-color: #e6ffe6;
+            color: #006600;
+        }
+        input, button {
+            padding: 8px;
+            margin: 5px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>🏠 Тест API выбранного адреса</h1>
+    
+    <div class="section">
+        <h3>🔑 Настройки</h3>
+        <input type="text" id="baseUrl" value="http://localhost:3000" placeholder="Base URL">
+        <input type="text" id="authToken" placeholder="Bearer Token (без Bearer)" style="width: 300px;">
+        <input type="number" id="businessId" value="1" placeholder="Business ID">
+    </div>
+
+    <div class="section">
+        <h3>📋 1. Получить все адреса пользователя</h3>
+        <button onclick="getUserAddresses()">Загрузить адреса</button>
+        <div id="addressesResult" class="result"></div>
+    </div>
+
+    <div class="section">
+        <h3>🎯 2. Выбрать адрес</h3>
+        <input type="number" id="selectAddressId" placeholder="Address ID">
+        <button onclick="selectAddress()">Выбрать адрес</button>
+        <div id="selectResult" class="result"></div>
+    </div>
+
+    <div class="section">
+        <h3>✅ 3. Получить выбранный адрес</h3>
+        <label>
+            <input type="checkbox" id="withDelivery"> Проверить доставку
+        </label>
+        <button onclick="getSelectedAddress()">Получить выбранный адрес</button>
+        <div id="selectedResult" class="result"></div>
+    </div>
+
+    <div class="section">
+        <h3>🚚 4. Получить адреса с информацией о доставке</h3>
+        <button onclick="getAddressesWithDelivery()">Загрузить с доставкой</button>
+        <div id="deliveryResult" class="result"></div>
+    </div>
+
+    <script>
+        function getHeaders() {
+            const token = document.getElementById('authToken').value;
+            const headers = {
+                'Content-Type': 'application/json'
+            };
+            if (token) {
+                headers['Authorization'] = `Bearer ${token}`;
+            }
+            return headers;
+        }
+
+        function getBaseUrl() {
+            return document.getElementById('baseUrl').value;
+        }
+
+        function getBusinessId() {
+            return document.getElementById('businessId').value;
+        }
+
+        function displayResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = JSON.stringify(data, null, 2);
+            element.className = `result ${isError ? 'error' : 'success'}`;
+        }
+
+        async function getUserAddresses() {
+            try {
+                const response = await fetch(`${getBaseUrl()}/api/addresses/user`, {
+                    headers: getHeaders()
+                });
+                const data = await response.json();
+                
+                if (response.ok) {
+                    displayResult('addressesResult', data);
+                    
+                    // Заполняем список адресов для выбора
+                    if (data.data && data.data.addresses && data.data.addresses.length > 0) {
+                        const firstAddressId = data.data.addresses[0].address_id;
+                        document.getElementById('selectAddressId').value = firstAddressId;
+                    }
+                } else {
+                    displayResult('addressesResult', data, true);
+                }
+            } catch (error) {
+                displayResult('addressesResult', { error: error.message }, true);
+            }
+        }
+
+        async function selectAddress() {
+            const addressId = document.getElementById('selectAddressId').value;
+            if (!addressId) {
+                alert('Введите Address ID');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${getBaseUrl()}/api/addresses/user/select`, {
+                    method: 'POST',
+                    headers: getHeaders(),
+                    body: JSON.stringify({ address_id: parseInt(addressId) })
+                });
+                const data = await response.json();
+                
+                displayResult('selectResult', data, !response.ok);
+            } catch (error) {
+                displayResult('selectResult', { error: error.message }, true);
+            }
+        }
+
+        async function getSelectedAddress() {
+            try {
+                const withDelivery = document.getElementById('withDelivery').checked;
+                const businessId = withDelivery ? getBusinessId() : null;
+                
+                let url = `${getBaseUrl()}/api/addresses/user/selected`;
+                if (businessId) {
+                    url += `?business_id=${businessId}`;
+                }
+
+                const response = await fetch(url, {
+                    headers: getHeaders()
+                });
+                const data = await response.json();
+                
+                displayResult('selectedResult', data, !response.ok);
+            } catch (error) {
+                displayResult('selectedResult', { error: error.message }, true);
+            }
+        }
+
+        async function getAddressesWithDelivery() {
+            try {
+                const businessId = getBusinessId();
+                const url = `${getBaseUrl()}/api/addresses/user/with-delivery?business_id=${businessId}`;
+
+                const response = await fetch(url, {
+                    headers: getHeaders()
+                });
+                const data = await response.json();
+                
+                displayResult('deliveryResult', data, !response.ok);
+            } catch (error) {
+                displayResult('deliveryResult', { error: error.message }, true);
+            }
+        }
+
+        // Автоматически загружаем адреса при загрузке страницы
+        window.onload = function() {
+            console.log('🚀 Тестирование API выбранного адреса готово');
+        };
+    </script>
+</body>
+</html>

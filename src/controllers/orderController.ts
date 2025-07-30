@@ -50,7 +50,8 @@ export class OrderController {
         delivery = false, // boolean для доставки
         bonus = false, // boolean для использования бонусов
         extra = '',
-        card_id // ID сохраненной карты (аналог card_id в PHP)
+        card_id, // ID сохраненной карты (аналог card_id в PHP)
+        address_id // Опциональный конкретный ID адреса для доставки
       } = req.body;
 
       // Проверяем авторизацию пользователя
@@ -67,16 +68,58 @@ export class OrderController {
 
       console.log('Начинаем создание заказа для пользователя:', user_id);
 
-      // Получаем выбранный адрес пользователя (аналог PHP кода) - ДО транзакции
-      const selectedAddress = await prisma.user_addreses.findFirst({
-        where: {
-          user_id: user_id,
-          isDeleted: 0
-        },
-        orderBy: {
-          address_id: 'desc' // Берем последний добавленный адрес
+      // Получаем адрес для доставки - ДО транзакции
+      let selectedAddress = null;
+      
+      // Если передан конкретный address_id, используем его
+      if (address_id && delivery) {
+        selectedAddress = await prisma.user_addreses.findFirst({
+          where: {
+            address_id: address_id,
+            user_id: user_id,
+            isDeleted: 0
+          }
+        });
+        
+        if (!selectedAddress) {
+          return next(createError(400, 'Указанный адрес не найден или не принадлежит пользователю'));
         }
-      });
+      }
+      // Иначе получаем выбранный адрес из таблицы selected_address
+      else if (delivery) {
+        const selectedAddressRecord = await prisma.selected_address.findFirst({
+          where: {
+            user_id: user_id
+          },
+          orderBy: {
+            log_timestamp: 'desc' // Берем последний выбранный адрес
+          }
+        });
+
+        if (selectedAddressRecord) {
+          // Получаем полную информацию об адресе
+          selectedAddress = await prisma.user_addreses.findFirst({
+            where: {
+              address_id: selectedAddressRecord.address_id,
+              user_id: user_id,
+              isDeleted: 0
+            }
+          });
+        }
+
+        // Если нет выбранного адреса, берем последний добавленный (fallback)
+        if (!selectedAddress) {
+          selectedAddress = await prisma.user_addreses.findFirst({
+            where: {
+              user_id: user_id,
+              isDeleted: 0
+            },
+            orderBy: {
+              address_id: 'desc' // Берем последний добавленный адрес
+            }
+          });
+        }
+      }
 
       if (!selectedAddress && delivery) {
         return next(createError(400, 'Не найден адрес для доставки'));
