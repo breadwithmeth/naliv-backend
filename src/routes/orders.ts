@@ -1,8 +1,7 @@
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import { OrderController } from '../controllers/orderController';
 import { authenticateToken } from '../middleware/auth';
 import { authenticateEmployee, optionalEmployeeAuth } from '../middleware/employeeAuth';
-import optionalAuth from '../middleware/optionalAuth';
 
 const router = Router();
 
@@ -13,71 +12,40 @@ router.post('/user', authenticateToken, OrderController.createUserOrder);
 // POST /api/orders/create-user-order - Создать новый заказ с автоматическим списанием
 router.post('/create-user-order', authenticateToken, OrderController.createUserOrder);
 
+// POST /api/orders/create-order-no-payment - Создать новый заказ без оплаты
+router.post('/create-order-no-payment', authenticateToken, OrderController.createOrderNoPayment);
+
 // POST /api/orders - Создать новый заказ (пользователи, совместимость)
 router.post('/', authenticateToken, OrderController.createOrder);
 
 // POST /api/orders/employee - Создать новый заказ (сотрудники)
 router.post('/employee', authenticateEmployee, OrderController.createOrder);
 
-// ===== ТЕСТОВЫЕ ENDPOINTS =====
-// GET /api/orders/test-php-uuid - Тестирование генерации PHP-style UUID
-router.get('/test-php-uuid', async (req: Request, res: Response) => {
-  try {
-    // Симулируем создание записи с log_timestamp
-    const mockTimestamp = new Date();
-    const mockOrderId = 12345;
-    
-    // Генерируем UUID как в PHP: CONCAT(UNIX_TIMESTAMP(log_timestamp), order_id)
-    const unixTimestamp = Math.floor(mockTimestamp.getTime() / 1000);
-    const phpStyleUuid = `${unixTimestamp}${mockOrderId}`;
-    
-    res.json({
-      success: true,
-      data: {
-        mock_timestamp: mockTimestamp.toISOString(),
-        mock_order_id: mockOrderId,
-        unix_timestamp: unixTimestamp,
-        php_style_uuid: phpStyleUuid,
-        explanation: 'PHP генерирует UUID как CONCAT(UNIX_TIMESTAMP(log_timestamp), order_id)'
-      }
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
-  }
-});
+// ===== ОПЛАТА ЗАКАЗОВ =====
+// POST /api/orders/:id/pay - Оплатить заказ сохраненной картой или создать ссылку для оплаты
+router.post('/:id/pay', authenticateToken, OrderController.payOrder);
 
-// GET /api/orders/test-uuid - Тестирование генерации числового UUID (legacy)
+// ===== ТЕСТОВЫЕ ENDPOINTS =====
+// GET /api/orders/test-uuid - Тестирование генерации числового UUID
 router.get('/test-uuid', OrderController.testNumericUuid);
 
 // ===== ПОЛУЧЕНИЕ ЗАКАЗОВ =====
-// GET /api/orders/active - Получить активные заказы (пользователи и сотрудники)
-router.get('/active', optionalAuth, OrderController.getActiveOrders);
+// GET /api/orders/my-orders - Получить все заказы авторизованного пользователя
+router.get('/my-orders', authenticateToken, OrderController.getUserOrders);
 
-// GET /api/orders/active/summary - Получить сводку активных заказов (дашборд)
-router.get('/active/summary', optionalAuth, OrderController.getActiveOrdersSummary);
-
-// GET /api/orders/business/:businessId/active - Получить активные заказы бизнеса (сотрудники)
-router.get('/business/:businessId/active', authenticateEmployee, OrderController.getBusinessActiveOrders);
+// GET /api/orders/my-active-orders - Получить активные заказы авторизованного пользователя
+router.get('/my-active-orders', authenticateToken, OrderController.getActiveOrders);
 
 // GET /api/orders/:id - Получить заказ по ID (доступно всем)
 router.get('/:id', OrderController.getOrderById);
 
-// GET /api/orders/:id/status - Отследить статус заказа (пользователи)
-router.get('/:id/status', authenticateToken, OrderController.trackOrderStatus);
-
-// GET /api/orders/user/:userId - Получить заказы пользователя (пользователи)
+// GET /api/orders/user/:userId - Получить заказы пользователя (пользователи, для совместимости)
 router.get('/user/:userId', authenticateToken, OrderController.getUserOrders);
 
 // GET /api/orders/employee/user/:userId - Получить заказы пользователя (сотрудники)
 router.get('/employee/user/:userId', authenticateEmployee, OrderController.getUserOrders);
 
 // ===== УПРАВЛЕНИЕ ЗАКАЗАМИ =====
-// POST /api/orders/:id/pay - Оплатить заказ картой (пользователи)
-router.post('/:id/pay', authenticateToken, OrderController.payOrder);
-
 // PUT /api/orders/:id/status - Обновить статус заказа (только сотрудники)
 router.put('/:id/status', authenticateEmployee, OrderController.updateOrderStatus);
 

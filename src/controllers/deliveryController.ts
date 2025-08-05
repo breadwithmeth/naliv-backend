@@ -7,7 +7,6 @@ interface DeliveryCheckRequest {
   lat: number;
   lon: number;
   business_id: number;
-  address_id?: number; // Опциональный для кеширования
 }
 
 interface DeliveryResult {
@@ -29,6 +28,12 @@ const createMySQLConnection = async () => {
     port: parseInt(process.env.DB_PORT || '3306')
   });
 };
+
+interface DeliveryCheckRequest {
+  lat: number;
+  lon: number;
+  business_id: number;
+}
 
 interface DeliveryResult {
   in_zone: boolean;
@@ -86,7 +91,7 @@ export class DeliveryController {
    * Основная функция расчета стоимости доставки
    */
   static async calculateDeliveryZone(data: DeliveryCheckRequest): Promise<DeliveryResult> {
-    const { lat, lon, business_id, address_id } = data;
+    const { lat, lon, business_id } = data;
 
     try {
       // Получаем информацию о городе бизнеса
@@ -116,7 +121,7 @@ export class DeliveryController {
       // Обработка типа доставки DISTANCE
       if (city.delivery_type === 'DISTANCE') {
         return await DeliveryController.handleDistanceDelivery(
-          city, lat, lon, business_lat, business_lon, business_id, address_id
+          city, lat, lon, business_lat, business_lon, business_id
         );
       }
       // Обработка типа доставки AREA
@@ -150,7 +155,7 @@ export class DeliveryController {
   }
 
   /**
-   * Обработка доставки по расстоянию (DISTANCE) - обновленная версия по PHP логике
+   * Обработка доставки по расстоянию (DISTANCE)
    */
   static async handleDistanceDelivery(
     city: any,
@@ -158,8 +163,7 @@ export class DeliveryController {
     lon: number,
     business_lat: number,
     business_lon: number,
-    business_id: number,
-    address_id?: number // Добавляем опциональный address_id
+    business_id: number
   ): Promise<DeliveryResult> {
     
     let connection;
@@ -189,66 +193,57 @@ export class DeliveryController {
         };
       }
 
-      // Получаем расстояние (сначала из кеша, потом рассчитываем через OSRM)
-      // Для этого нужно передать address_id, если он доступен в контексте
-      const distance = await DeliveryController.getOrCalculateDistance(
-        lat, lon, business_lat, business_lon, business_id, address_id
-      );
-      
-      if (distance === null) {
-        return {
-          in_zone: false,
-          price: false,
-          delivery_type: 'distance',
-          message: 'Ошибка расчета расстояния'
-        };
-      }
-
       // Получаем настройки доставки для города
       const delivery_rate = await prisma.delivery_rates.findFirst({
         where: { city_id: city.city_id }
       });
-
-      if (!delivery_rate) {
-        return {
-          in_zone: false,
-          price: false,
-          delivery_type: 'distance',
-          message: 'Не найдены настройки доставки для города'
-        };
-      }
-
-      const base_distance = Number(delivery_rate.base_distance);
-      const base_price = Number(delivery_rate.base_distance_price);
-
-      // Если расстояние в пределах базового - возвращаем базовую цену
-      if (distance <= base_distance) {
-        return {
-          in_zone: true,
-          price: base_price,
-          delivery_type: 'distance',
-          message: 'Адрес находится в зоне доставки',
-          max_distance: base_distance,
-          current_distance: distance
-        };
-      } else {
-        // Рассчитываем цену с учетом детальных тарифов
-        const detailedPrice = await DeliveryController.calculateDetailedPrice(
-          delivery_rate.delivery_rate_id,
-          distance,
-          base_distance,
-          base_price
+      
+      // Получаем расстояние до бизнеса
+      const distance = await DeliveryController.getDistanceToBusinesses(lat, lon, business_id);
+      const max_distance = delivery_rate?.base_distance ? Number(delivery_rate.base_distance) * 1000 : 30000; // 30 км по умолчанию
+      
+      if (distance > max_distance) {
+        // Если расстояние больше максимального, пробуем через Яндекс
+        const yandex_price = await DeliveryController.checkPriceYandex(
+          business_lat, business_lon, lat, lon
         );
-
         return {
-          in_zone: true,
-          price: Math.floor(detailedPrice), // TRUNCATE в PHP
-          delivery_type: 'distance',
-          message: 'Адрес находится в зоне доставки',
-          max_distance: base_distance,
+          in_zone: yandex_price !== false,
+          price: yandex_price,
+          delivery_type: 'yandex',
+          message: yandex_price !== false ? 'Доставка возможна через Яндекс' : 'Адрес находится слишком далеко',
+          max_distance,
           current_distance: distance
         };
       }
+      
+      // Рассчитываем стоимость доставки по расстоянию
+      let delivery_price = 0;
+      
+      if (delivery_rate?.base_distance_price) {
+        // Если есть базовая цена за расстояние, используем её
+        delivery_price = Number(delivery_rate.base_distance_price);
+      } else {
+        // Если нет настроек, используем фиксированную цену по умолчанию
+        delivery_price = 500; // 500 тенге по умолчанию
+        
+        // Дополнительная плата за каждый км сверх 5 км
+        const base_distance_default = 5000; // 5 км в метрах
+        if (distance > base_distance_default) {
+          const extra_distance = distance - base_distance_default;
+          const extra_km = Math.ceil(extra_distance / 1000);
+          delivery_price += extra_km * 100; // 100 тенге за каждый дополнительный км
+        }
+      }
+      
+      return {
+        in_zone: true,
+        price: delivery_price,
+        delivery_type: 'distance',
+        message: 'Адрес находится в зоне доставки',
+        max_distance,
+        current_distance: distance
+      };
 
     } catch (error: any) {
       console.error('Ошибка обработки доставки по расстоянию:', error);
@@ -265,126 +260,6 @@ export class DeliveryController {
       if (connection) {
         await connection.end();
       }
-    }
-  }
-
-  /**
-   * Получение или расчет расстояния (с кешированием как в PHP)
-   */
-  static async getOrCalculateDistance(
-    lat: number, 
-    lon: number, 
-    business_lat: number, 
-    business_lon: number, 
-    business_id: number,
-    address_id?: number
-  ): Promise<number | null> {
-    try {
-      // Если есть address_id, проверяем кеш в таблице delivery_distance
-      if (address_id) {
-        const cachedDistance = await prisma.delivery_distance.findFirst({
-          where: {
-            address_id: address_id,
-            business_id: business_id
-          }
-        });
-
-        if (cachedDistance) {
-          return Number(cachedDistance.distance);
-        }
-      }
-
-      // Рассчитываем расстояние через OSRM API (как в PHP)
-      const osrmUrl = `https://oos.naliv.kz/route/v1/driving/${business_lon},${business_lat};${lon},${lat}`;
-      
-      const response = await fetch(osrmUrl, {
-        method: 'POST'
-      });
-
-      if (!response.ok) {
-        console.error('OSRM API ошибка:', response.status);
-        // Fallback на Haversine формулу
-        return DeliveryController.calculateHaversineDistance(business_lat, business_lon, lat, lon);
-      }
-
-      const data: any = await response.json();
-      
-      if (!data.routes || data.routes.length === 0) {
-        console.error('OSRM API не вернул маршруты');
-        // Fallback на Haversine формулу
-        return DeliveryController.calculateHaversineDistance(business_lat, business_lon, lat, lon);
-      }
-
-      const distance = data.routes[0].distance; // расстояние в метрах
-
-      // Сохраняем в кеш, если есть address_id
-      if (address_id) {
-        try {
-          await prisma.delivery_distance.create({
-            data: {
-              address_id: address_id,
-              business_id: business_id,
-              distance: distance
-            }
-          });
-        } catch (cacheError) {
-          console.warn('Не удалось сохранить расстояние в кеш:', cacheError);
-        }
-      }
-
-      return distance;
-
-    } catch (error: any) {
-      console.error('Ошибка расчета расстояния:', error);
-      // Fallback на Haversine формулу
-      return DeliveryController.calculateHaversineDistance(business_lat, business_lon, lat, lon);
-    }
-  }
-
-  /**
-   * Расчет детальной цены с учетом тарифных зон (как в PHP)
-   */
-  static async calculateDetailedPrice(
-    delivery_rate_id: number,
-    distance: number,
-    base_distance: number,
-    base_price: number
-  ): Promise<number> {
-    try {
-      // Получаем детальный тариф (аналог PHP запроса)
-      const deliveryRateDetail = await prisma.delivery_rate_details.findFirst({
-        where: {
-          rate_id: delivery_rate_id,
-          condition_value: {
-            lt: distance
-          }
-        },
-        orderBy: {
-          condition_value: 'desc'
-        }
-      });
-
-      if (!deliveryRateDetail) {
-        // Если нет детального тарифа, используем стандартную доплату
-        const extra_distance = distance - base_distance;
-        const extra_km = Math.ceil(extra_distance / 1000);
-        return base_price + (extra_km * 100); // 100 тенге за км по умолчанию
-      }
-
-      // Рассчитываем по формуле из PHP:
-      // base_price + ((distance - base_distance) * rate_detail_price)
-      const extra_distance = distance - base_distance;
-      const rate_price = Number(deliveryRateDetail.price);
-      const total_price = base_price + (extra_distance * rate_price);
-
-      return total_price;
-
-    } catch (error: any) {
-      console.error('Ошибка расчета детальной цены:', error);
-      // Fallback на стандартную логику
-      const extra_distance = distance - base_distance;
-      const extra_km = Math.ceil(extra_distance / 1000);
-      return base_price + (extra_km * 100);
     }
   }
 
@@ -561,22 +436,12 @@ export class DeliveryController {
         return false;
       }
 
-      // Базовая стоимость + стоимость за километр (более реалистичная формула)
-      const basePrice = 400; // 400 тенге базовая стоимость
+      // Базовая стоимость + стоимость за километр
+      const basePrice = 300; // 300 тенге базовая стоимость
+      const pricePerKm = 50; // 50 тенге за километр
       const distanceKm = distance / 1000;
       
-      let totalPrice = basePrice;
-      
-      if (distanceKm <= 5) {
-        // До 5 км - только базовая стоимость
-        totalPrice = basePrice;
-      } else if (distanceKm <= 15) {
-        // От 5 до 15 км - +80 тенге за км
-        totalPrice = basePrice + ((distanceKm - 5) * 80);
-      } else {
-        // Свыше 15 км - +120 тенге за км
-        totalPrice = basePrice + (10 * 80) + ((distanceKm - 15) * 120);
-      }
+      const totalPrice = basePrice + (distanceKm * pricePerKm);
       
       // В реальном приложении здесь должен быть запрос к API Яндекс.Доставки
       // const yandexResponse = await fetch('https://api.yandex.delivery/...', {
@@ -669,50 +534,40 @@ export class DeliveryController {
   }
 
   /**
-   * Расчет стоимости доставки по business_id и address_id
+   * Расчет стоимости доставки по координатам и business_id
    * GET /api/delivery/calculate-by-address
-   * Query: { business_id: number, address_id: number }
+   * Query: { business_id: number, lat: number, lon: number }
    */
   static async calculateDeliveryByAddress(req: Request, res: Response, next: NextFunction) {
     try {
-      const { business_id, address_id } = req.query;
+      const { business_id, lat, lon } = req.query;
 
       // Валидация входных данных
-      if (!business_id || !address_id) {
-        return next(createError(400, 'Параметры business_id и address_id обязательны'));
+      if (!business_id || !lat || !lon) {
+        return next(createError(400, 'Параметры business_id, lat и lon обязательны'));
       }
 
       const businessId = parseInt(business_id as string);
-      const addressId = parseInt(address_id as string);
+      const latitude = parseFloat(lat as string);
+      const longitude = parseFloat(lon as string);
 
-      if (isNaN(businessId) || isNaN(addressId)) {
-        return next(createError(400, 'Параметры business_id и address_id должны быть числами'));
+      if (isNaN(businessId) || isNaN(latitude) || isNaN(longitude)) {
+        return next(createError(400, 'Параметры business_id должен быть числом, lat и lon должны быть десятичными числами'));
       }
 
-      // Получаем адрес пользователя
-      const userAddress = await prisma.user_addreses.findUnique({
-        where: {
-          address_id: addressId
-        }
-      });
-
-      if (!userAddress) {
-        return next(createError(404, 'Адрес не найден'));
+      // Валидация диапазона координат
+      if (latitude < -90 || latitude > 90) {
+        return next(createError(400, 'Некорректная широта (lat должна быть от -90 до 90)'));
       }
 
-      if (userAddress.isDeleted === 1) {
-        return next(createError(400, 'Адрес удален'));
-      }
-
-      // Проверяем что адрес имеет координаты
-      if (!userAddress.lat || !userAddress.lon) {
-        return next(createError(400, 'У адреса отсутствуют координаты'));
+      if (longitude < -180 || longitude > 180) {
+        return next(createError(400, 'Некорректная долгота (lon должна быть от -180 до 180)'));
       }
 
       // Вызываем существующий метод расчета доставки
       const deliveryResult = await DeliveryController.calculateDeliveryZone({
-        lat: userAddress.lat,
-        lon: userAddress.lon,
+        lat: latitude,
+        lon: longitude,
         business_id: businessId
       });
 
@@ -724,17 +579,8 @@ export class DeliveryController {
           delivery_cost: deliveryResult.price,
           zone_name: deliveryResult.message,
           coordinates: {
-            lat: userAddress.lat,
-            lon: userAddress.lon
-          },
-          address: {
-            address_id: userAddress.address_id,
-            name: userAddress.name,
-            address: userAddress.address,
-            apartment: userAddress.apartment,
-            entrance: userAddress.entrance,
-            floor: userAddress.floor,
-            other: userAddress.other
+            lat: latitude,
+            lon: longitude
           }
         },
         message: deliveryResult.in_zone ? 'Доставка возможна' : 'Доставка невозможна'

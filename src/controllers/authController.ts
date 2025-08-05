@@ -342,6 +342,58 @@ export class AuthController {
   }
 
   /**
+   * Получить всю информацию о текущем пользователе: профиль, адреса и сохраненные карты
+   * GET /api/auth/full-info
+   */
+  static async getFullInfo(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Пользователь не авторизован'));
+      }
+      const userId = req.user.user_id;
+      // Профиль пользователя
+      const user = await prisma.user.findUnique({
+        where: { user_id: userId },
+        select: {
+          user_id: true,
+          name: true,
+          first_name: true,
+          last_name: true,
+          login: true,
+          date_of_birth: true,
+          sex: true,
+          log_timestamp: true
+        }
+      });
+      if (!user) {
+        return next(createError(404, 'Пользователь не найден'));
+      }
+      // Адреса пользователя
+      const addresses = await prisma.user_addreses.findMany({
+        where: { user_id: userId, isDeleted: 0 },
+        orderBy: { log_timestamp: 'desc' }
+      });
+      // Сохраненные карты пользователя
+      const cardsRaw = await prisma.$queryRaw<any[]>`
+        SELECT MAX(card_id) as card_id, CONCAT('**** **** **** ', RIGHT(card_mask, 4)) as mask
+        FROM halyk_saved_cards
+        WHERE user_id = ${userId}
+        GROUP BY card_mask
+        ORDER BY MAX(card_id) DESC
+      `;
+      const cards = cardsRaw.map(c => ({ card_id: c.card_id, mask: c.mask }));
+      res.json({
+        success: true,
+        data: { user, addresses, cards },
+        message: 'Полная информация о пользователе получена'
+      });
+    } catch (error: any) {
+      console.error('Ошибка получения полной информации пользователя:', error);
+      next(createError(500, `Ошибка получения информации: ${error.message}`));
+    }
+  }
+
+  /**
    * Смена пароля
    */
   static async changePassword(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -499,6 +551,16 @@ export class AuthController {
         });
       }
 
+      // Генерация временного пароля для входа по одноразовому коду
+      const rawPassword = require('crypto').randomBytes(6).toString('hex');
+      const saltRounds = 12;
+      const hashedPassword = await bcrypt.hash(rawPassword, saltRounds);
+      // Обновляем пароль пользователя
+      await prisma.user.update({
+        where: { user_id: user.user_id },
+        data: { password: hashedPassword }
+      });
+
       // Удаляем старые токены пользователя (опционально)
       await prisma.users_tokens.deleteMany({
         where: { user_id: user.user_id }
@@ -529,6 +591,7 @@ export class AuthController {
             login: user.login,
             log_timestamp: user.log_timestamp
           },
+          password: rawPassword,
           token: jwtToken,
           session_token: tokenData.token
         },

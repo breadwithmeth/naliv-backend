@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тестирование Halyk Cards API</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        h2 {
+            color: #444;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+            margin-top: 30px;
+        }
+
+        .auth-section {
+            background: #e3f2fd;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        input[type="text"], input[type="password"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        input:focus {
+            border-color: #007bff;
+            outline: none;
+        }
+
+        .button {
+            background: linear-gradient(45deg, #007bff, #0056b3);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 5px;
+        }
+
+        .button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+        }
+
+        .button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .button.secondary {
+            background: linear-gradient(45deg, #6c757d, #495057);
+        }
+
+        .button.success {
+            background: linear-gradient(45deg, #28a745, #1e7e34);
+        }
+
+        .button.warning {
+            background: linear-gradient(45deg, #ffc107, #e0a800);
+        }
+
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .result.success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+
+        .result.error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+
+        .result.info {
+            background: #d1ecf1;
+            border-color: #bee5eb;
+            color: #0c5460;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .card-item {
+            background: white;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            transition: all 0.3s ease;
+        }
+
+        .card-item:hover {
+            border-color: #007bff;
+            box-shadow: 0 4px 12px rgba(0, 123, 255, 0.15);
+        }
+
+        .card-mask {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+
+        .card-details {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .card-source {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            margin-top: 8px;
+        }
+
+        .source-halyk {
+            background: #28a745;
+            color: white;
+        }
+
+        .source-local {
+            background: #6c757d;
+            color: white;
+        }
+
+        .source-combined {
+            background: #007bff;
+            color: white;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-item {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 24px;
+            font-weight: 700;
+            color: #007bff;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .info-box {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 15px 0;
+        }
+
+        .info-box strong {
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏦 Тестирование Halyk Cards API</h1>
+        
+        <div class="info-box">
+            <strong>📋 Описание:</strong> Тестирование новых API методов для получения списка сохраненных карт из Halyk Bank API согласно документации https://epayment.kz/docs/poluchenie-spiska-kart
+        </div>
+
+        <!-- Авторизация -->
+        <div class="auth-section">
+            <h2>🔐 Авторизация</h2>
+            <div class="form-group">
+                <label for="jwtToken">JWT Токен:</label>
+                <input type="text" id="jwtToken" placeholder="Введите JWT токен или получите через quick-auth.html">
+            </div>
+            <div class="form-group">
+                <label for="accountId">Account ID (user_id):</label>
+                <input type="text" id="accountId" placeholder="ID пользователя (по умолчанию из токена)" value="">
+            </div>
+            <button class="button" onclick="loadTokenFromStorage()">📥 Загрузить из хранилища</button>
+            <button class="button secondary" onclick="testTokenValidation()">✅ Проверить токен</button>
+        </div>
+    </div>
+
+    <!-- Тестирование методов -->
+    <div class="container">
+        <h2>🎯 Тестирование API методов</h2>
+        
+        <div style="margin-bottom: 20px;">
+            <button class="button" onclick="testLocalCards()">🗄️ Локальные карты (БД)</button>
+            <button class="button" onclick="testHalykApiCards()">🏦 Halyk Bank API</button>
+            <button class="button success" onclick="testCombinedCards()">🔗 Объединенные карты</button>
+            <button class="button warning" onclick="testNewPaymentEndpoints()">💳 Новые Payment эндпоинты</button>
+        </div>
+
+        <div id="apiResults" class="result" style="display: none;"></div>
+    </div>
+
+    <!-- Результаты -->
+    <div class="container">
+        <h2>📊 Результаты тестирования</h2>
+        
+        <div class="stats" id="statsContainer" style="display: none;">
+            <div class="stat-item">
+                <div class="stat-number" id="statTotal">0</div>
+                <div class="stat-label">Всего карт</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="statHalyk">0</div>
+                <div class="stat-label">Halyk API</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="statLocal">0</div>
+                <div class="stat-label">Локальная БД</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-number" id="statCombined">0</div>
+                <div class="stat-label">Объединенные</div>
+            </div>
+        </div>
+
+        <div id="cardsContainer"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000';
+        let currentToken = '';
+        let currentAccountId = '';
+
+        // Загрузка токена из localStorage
+        function loadTokenFromStorage() {
+            const token = localStorage.getItem('quickAuthToken') || 
+                         localStorage.getItem('addCardTestToken') || 
+                         localStorage.getItem('bonusApiAuthToken');
+            
+            if (token) {
+                document.getElementById('jwtToken').value = token;
+                currentToken = token;
+                showResult('✅ Токен загружен из хранилища', 'success');
+                
+                // Пытаемся извлечь user_id из токена
+                try {
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    if (payload.user_id) {
+                        document.getElementById('accountId').value = payload.user_id;
+                        currentAccountId = payload.user_id;
+                        showResult(`✅ Account ID установлен: ${payload.user_id}`, 'success');
+                    }
+                } catch (e) {
+                    console.warn('Не удалось извлечь user_id из токена:', e);
+                }
+            } else {
+                showResult('❌ Токен не найден в хранилище. Используйте quick-auth.html', 'error');
+            }
+        }
+
+        // Проверка валидности токена
+        async function testTokenValidation() {
+            const token = document.getElementById('jwtToken').value.trim();
+            if (!token) {
+                showResult('❌ Введите JWT токен', 'error');
+                return;
+            }
+
+            try {
+                showResult('🔄 Проверка токена...', 'info');
+                
+                const response = await fetch(`${API_BASE_URL}/api/user/cards?source=local`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const result = await response.json();
+                
+                if (result.success) {
+                    currentToken = token;
+                    currentAccountId = document.getElementById('accountId').value || 'auto';
+                    showResult(`✅ Токен валиден! Пользователь имеет ${result.data.total} карт в локальной БД`, 'success');
+                } else {
+                    showResult(`❌ Токен недействителен: ${result.error?.message || 'Неизвестная ошибка'}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ Ошибка проверки токена: ${error.message}`, 'error');
+            }
+        }
+
+        // Тестирование локальных карт (оригинальный API)
+        async function testLocalCards() {
+            if (!validateAuth()) return;
+
+            try {
+                showResult('🗄️ Получение карт из локальной БД...', 'info');
+                
+                const response = await fetch(`${API_BASE_URL}/api/user/cards?source=local`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const result = await response.json();
+                displayCardsResult('Локальные карты (БД)', result);
+                
+            } catch (error) {
+                showResult(`❌ Ошибка получения локальных карт: ${error.message}`, 'error');
+            }
+        }
+
+        // Тестирование Halyk Bank API
+        async function testHalykApiCards() {
+            if (!validateAuth()) return;
+
+            try {
+                showResult('🏦 Получение карт из Halyk Bank API...', 'info');
+                
+                const response = await fetch(`${API_BASE_URL}/api/user/cards?source=halyk`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const result = await response.json();
+                displayCardsResult('Halyk Bank API', result);
+                
+            } catch (error) {
+                showResult(`❌ Ошибка получения карт из Halyk API: ${error.message}`, 'error');
+            }
+        }
+
+        // Тестирование объединенных карт
+        async function testCombinedCards() {
+            if (!validateAuth()) return;
+
+            try {
+                showResult('🔗 Получение объединенных карт (БД + Halyk API)...', 'info');
+                
+                const response = await fetch(`${API_BASE_URL}/api/user/cards?source=combined`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const result = await response.json();
+                displayCardsResult('Объединенные карты', result);
+                
+            } catch (error) {
+                showResult(`❌ Ошибка получения объединенных карт: ${error.message}`, 'error');
+            }
+        }
+
+        // Тестирование новых Payment эндпоинтов
+        async function testNewPaymentEndpoints() {
+            if (!validateAuth()) return;
+
+            try {
+                showResult('💳 Тестирование новых Payment эндпоинтов...', 'info');
+                
+                // Тест 1: /api/payments/saved-cards/:accountId
+                const accountId = currentAccountId || 'auto';
+                showResult(`🔄 Тестирование /api/payments/saved-cards/${accountId}...`, 'info');
+                
+                const response1 = await fetch(`${API_BASE_URL}/api/payments/saved-cards/${accountId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const result1 = await response1.json();
+                showResult(`📤 Результат /api/payments/saved-cards/${accountId}:\n${JSON.stringify(result1, null, 2)}`, result1.success ? 'success' : 'error');
+
+                // Тест 2: /api/payments/saved-cards-combined
+                showResult('🔄 Тестирование /api/payments/saved-cards-combined...', 'info');
+                
+                const response2 = await fetch(`${API_BASE_URL}/api/payments/saved-cards-combined`, {
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`
+                    }
+                });
+
+                const result2 = await response2.json();
+                showResult(`📤 Результат /api/payments/saved-cards-combined:\n${JSON.stringify(result2, null, 2)}`, result2.success ? 'success' : 'error');
+
+                // Отображаем результаты
+                if (result2.success) {
+                    displayCardsResult('Payment API - Объединенные карты', result2);
+                }
+                
+            } catch (error) {
+                showResult(`❌ Ошибка тестирования Payment эндпоинтов: ${error.message}`, 'error');
+            }
+        }
+
+        // Валидация авторизации
+        function validateAuth() {
+            const token = document.getElementById('jwtToken').value.trim();
+            if (!token) {
+                showResult('❌ Введите JWT токен', 'error');
+                return false;
+            }
+            currentToken = token;
+            currentAccountId = document.getElementById('accountId').value.trim();
+            return true;
+        }
+
+        // Отображение результатов
+        function showResult(message, type = 'info') {
+            const resultsDiv = document.getElementById('apiResults');
+            resultsDiv.style.display = 'block';
+            resultsDiv.className = `result ${type}`;
+            resultsDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        }
+
+        // Отображение карт
+        function displayCardsResult(title, result) {
+            const container = document.getElementById('cardsContainer');
+            
+            if (!result.success) {
+                container.innerHTML = `
+                    <div class="result error">
+                        <strong>${title} - Ошибка:</strong><br>
+                        ${result.error?.message || 'Неизвестная ошибка'}
+                    </div>
+                `;
+                return;
+            }
+
+            const cards = result.data.cards || [];
+            const total = result.data.total || 0;
+            const sources = result.data.sources || {};
+
+            // Обновляем статистику
+            updateStats(sources, total);
+
+            // Отображаем карты
+            let cardsHtml = `
+                <div class="result success">
+                    <strong>${title}:</strong><br>
+                    Найдено: ${total} карт<br>
+                    Источник: ${result.data.source || 'unknown'}<br>
+                    Время: ${new Date().toLocaleTimeString()}
+                </div>
+            `;
+
+            if (cards.length > 0) {
+                cardsHtml += '<div class="cards-grid">';
+                
+                cards.forEach(card => {
+                    const source = card.source || 'unknown';
+                    const sourceClass = source.includes('halyk') ? 'source-halyk' : 
+                                       source.includes('local') ? 'source-local' : 'source-combined';
+                    
+                    cardsHtml += `
+                        <div class="card-item">
+                            <div class="card-mask">${card.mask || card.card_mask || 'N/A'}</div>
+                            <div class="card-details">
+                                ${card.card_id ? `Local ID: ${card.card_id}<br>` : ''}
+                                ${card.halyk_id || card.halyk_card_id ? `Halyk ID: ${(card.halyk_id || card.halyk_card_id).substring(0, 20)}...<br>` : ''}
+                                ${card.payer_name ? `Владелец: ${card.payer_name}<br>` : ''}
+                                ${card.created_date ? `Создана: ${new Date(card.created_date).toLocaleDateString()}<br>` : ''}
+                                ${card.payment_available !== undefined ? `Доступна для оплаты: ${card.payment_available ? 'Да' : 'Нет'}<br>` : ''}
+                                ${card.local_record !== undefined ? `Есть в БД: ${card.local_record ? 'Да' : 'Нет'}` : ''}
+                            </div>
+                            <span class="card-source ${sourceClass}">${source}</span>
+                        </div>
+                    `;
+                });
+                
+                cardsHtml += '</div>';
+            } else {
+                cardsHtml += '<div class="result info">Карты не найдены</div>';
+            }
+
+            container.innerHTML = cardsHtml;
+        }
+
+        // Обновление статистики
+        function updateStats(sources, total) {
+            const statsContainer = document.getElementById('statsContainer');
+            statsContainer.style.display = 'grid';
+
+            document.getElementById('statTotal').textContent = total || 0;
+            document.getElementById('statHalyk').textContent = sources.halyk_api || 0;
+            document.getElementById('statLocal').textContent = sources.local_db || 0;
+            document.getElementById('statCombined').textContent = sources.combined || total || 0;
+        }
+
+        // Автозагрузка при открытии страницы
+        window.onload = function() {
+            loadTokenFromStorage();
+        };
+    </script>
+</body>
+</html>

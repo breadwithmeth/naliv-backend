@@ -11,7 +11,6 @@ import {
 } from '../types/orders';
 import { orders_delivery_type } from '@prisma/client';
 import { DeliveryController } from './deliveryController';
-import { NotificationController } from './notificationController';
 
 interface AuthRequest extends Request {
   user?: {
@@ -48,12 +47,22 @@ export class OrderController {
       const { 
         business_id,
         items,
-        delivery = false, // boolean для доставки
+        delivery = false, // boolean для доставки (для обратной совместимости)
+        delivery_type, // новый параметр: 'DELIVERY', 'PICKUP', 'SCHEDULED'
+        delivery_date, // дата доставки для SCHEDULED
         bonus = false, // boolean для использования бонусов
         extra = '',
-        card_id, // ID сохраненной карты (аналог card_id в PHP)
+        halyk_id, // Токен карты Halyk Bank для автоматического списания
         address_id // Опциональный конкретный ID адреса для доставки
       } = req.body;
+
+      // Определяем тип доставки (для обратной совместимости)
+      let actualDeliveryType = delivery_type;
+      if (!delivery_type && delivery) {
+        actualDeliveryType = 'DELIVERY'; // если передан старый параметр delivery=true
+      } else if (!delivery_type && !delivery) {
+        actualDeliveryType = 'PICKUP'; // если доставка не нужна
+      }
 
       // Проверяем авторизацию пользователя
       if (!req.user) {
@@ -67,13 +76,57 @@ export class OrderController {
         return next(createError(400, 'Не все обязательные поля заполнены'));
       }
 
+      // Проверяем корректность данных товаров
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item.item_id || typeof item.item_id !== 'number') {
+          return next(createError(400, `Товар ${i + 1}: отсутствует или некорректный item_id`));
+        }
+        
+        // Проверяем amount - может быть числом или строкой, содержащей число
+        const amount = typeof item.amount === 'string' ? parseFloat(item.amount) : item.amount;
+        if (!item.amount || isNaN(amount) || amount <= 0) {
+          return next(createError(400, `Товар ${i + 1}: отсутствует или некорректное количество amount`));
+        }
+        
+        // Обновляем значение amount в объекте для дальнейшего использования
+        item.amount = amount;
+      }
+
       console.log('Начинаем создание заказа для пользователя:', user_id);
+      console.log('Получены товары:', JSON.stringify(items, null, 2));
+      console.log('Тип доставки:', actualDeliveryType);
+
+      // Валидация для запланированной доставки
+      let deliveryDate = null;
+      if (actualDeliveryType === 'SCHEDULED') {
+        if (!delivery_date) {
+          return next(createError(400, 'Для запланированной доставки необходимо указать дату delivery_date'));
+        }
+        
+        const scheduledDate = new Date(delivery_date);
+        const now = new Date();
+        
+        if (scheduledDate <= now) {
+          return next(createError(400, 'Дата запланированной доставки должна быть в будущем'));
+        }
+        
+        const maxFutureDate = new Date();
+        maxFutureDate.setDate(maxFutureDate.getDate() + 30);
+        
+        if (scheduledDate > maxFutureDate) {
+          return next(createError(400, 'Дата запланированной доставки не может быть более чем на 30 дней вперед'));
+        }
+        
+        deliveryDate = scheduledDate;
+        console.log('Запланированная доставка на:', scheduledDate.toISOString());
+      }
 
       // Получаем адрес для доставки - ДО транзакции
       let selectedAddress = null;
       
       // Если передан конкретный address_id, используем его
-      if (address_id && delivery) {
+      if (address_id && (actualDeliveryType === 'DELIVERY' || actualDeliveryType === 'SCHEDULED')) {
         selectedAddress = await prisma.user_addreses.findFirst({
           where: {
             address_id: address_id,
@@ -87,7 +140,7 @@ export class OrderController {
         }
       }
       // Иначе получаем выбранный адрес из таблицы selected_address
-      else if (delivery) {
+      else if (actualDeliveryType === 'DELIVERY' || actualDeliveryType === 'SCHEDULED') {
         const selectedAddressRecord = await prisma.selected_address.findFirst({
           where: {
             user_id: user_id
@@ -122,13 +175,14 @@ export class OrderController {
         }
       }
 
-      if (!selectedAddress && delivery) {
-        return next(createError(400, 'Не найден адрес для доставки'));
+      if (!selectedAddress && (actualDeliveryType === 'DELIVERY' || actualDeliveryType === 'SCHEDULED')) {
+        const deliveryTypeText = actualDeliveryType === 'SCHEDULED' ? 'запланированной доставки' : 'доставки';
+        return next(createError(400, `Не найден адрес для ${deliveryTypeText}`));
       }
 
       // Рассчитываем стоимость доставки (аналог getDistanceToBusinesses4) - ДО транзакции
       let deliveryPrice = 0;
-      if (delivery && selectedAddress) {
+      if ((actualDeliveryType === 'DELIVERY' || actualDeliveryType === 'SCHEDULED') && selectedAddress) {
         try {
           const deliveryResult = await DeliveryController.calculateDeliveryZone({
             lat: Number(selectedAddress.lat),
@@ -138,8 +192,15 @@ export class OrderController {
           
           if (deliveryResult.in_zone && deliveryResult.price !== false) {
             deliveryPrice = Number(deliveryResult.price);
+            
+            if (actualDeliveryType === 'SCHEDULED') {
+              console.log('Рассчитана стоимость запланированной доставки:', deliveryPrice);
+            } else {
+              console.log('Рассчитана стоимость обычной доставки:', deliveryPrice);
+            }
           } else {
-            return next(createError(400, `Доставка недоступна: ${deliveryResult.message}`));
+            const deliveryTypeText = actualDeliveryType === 'SCHEDULED' ? 'Запланированная доставка' : 'Доставка';
+            return next(createError(400, `${deliveryTypeText} недоступна: ${deliveryResult.message}`));
           }
         } catch (deliveryError: any) {
           console.error('Ошибка расчета доставки:', deliveryError);
@@ -191,6 +252,8 @@ export class OrderController {
           data: {
             business_id,
             user_id,
+            delivery_type: actualDeliveryType,
+            delivery_date: deliveryDate,
             address_id: selectedAddress?.address_id || 0,
             delivery_price: deliveryPrice,
             extra: extra || ''
@@ -221,6 +284,39 @@ export class OrderController {
 
         // Добавляем товары и опции - используем уже проверенные данные
         for (const validatedItem of stockValidation) {
+          console.log('Обрабатываем проверенный товар с ID:', validatedItem.item_id);
+          
+          // Проверяем активные акции для данного товара
+          let appliedPromotionDetailId = null;
+          
+          // Поиск акций для конкретного товара (аналог SQL запроса)
+          const now = new Date();
+          const promotionDetailsRaw = await tx.$queryRaw`
+            SELECT 
+              mpd.detail_id,
+              mpd.type,
+              mpd.base_amount,
+              mpd.add_amount,
+              mpd.discount,
+              mp.start_promotion_date,
+              mp.end_promotion_date
+            FROM marketing_promotion_details mpd
+            LEFT JOIN marketing_promotions mp ON mp.marketing_promotion_id = mpd.marketing_promotion_id
+            WHERE mpd.item_id = ${validatedItem.item_id}
+              AND mp.business_id = ${business_id}
+              AND mp.start_promotion_date < ${now}
+              AND mp.end_promotion_date > ${now}
+              AND mp.visible = 1
+            ORDER BY mpd.discount DESC
+            LIMIT 1
+          `;
+
+          // Берем первую (лучшую) акцию если она есть
+          if (Array.isArray(promotionDetailsRaw) && promotionDetailsRaw.length > 0) {
+            appliedPromotionDetailId = (promotionDetailsRaw[0] as any).detail_id;
+            console.log('Применена акция detail_id:', appliedPromotionDetailId, 'для товара:', validatedItem.item_id);
+          }
+
           // Добавляем основной товар в заказ
           const orderItem = await tx.orders_items.create({
             data: {
@@ -228,7 +324,8 @@ export class OrderController {
               item_id: validatedItem.item_id,
               price_id: null, // Не используем price_id, цена из items
               amount: validatedItem.amount,
-              price: validatedItem.itemPrice // Цена из таблицы items
+              price: validatedItem.itemPrice, // Цена из таблицы items
+              marketing_promotion_detail_id: appliedPromotionDetailId // ID примененной акции
             }
           });
 
@@ -287,7 +384,7 @@ export class OrderController {
           }
         }
 
-        console.log('ID карты:', card_id);
+        console.log('ID карты Halyk:', halyk_id);
 
         // Возвращаем успешный результат
         return {
@@ -301,8 +398,8 @@ export class OrderController {
       });
 
       // Обрабатываем платеж после завершения транзакции
-      if (card_id) {
-        console.log('⚠️  ВНИМАНИЕ: card_id передан, но оплата не будет выполнена');
+      if (halyk_id) {
+        console.log('⚠️  ВНИМАНИЕ: halyk_id передан, но оплата не будет выполнена');
         console.log('Используйте отдельный endpoint POST /api/orders/:id/pay для оплаты заказа');
       }
 
@@ -313,12 +410,12 @@ export class OrderController {
           where: { business_id: business_id }
         });
 
-        await NotificationController.sendOrderStatusNotification({
-          order_id: orderResult.order_id,
-          order_uuid: orderResult.order_uuid,
-          status: 'created',
-          business_name: businessInfo?.name || 'Неизвестное заведение'
-        });
+        // await NotificationController.sendOrderStatusNotification({
+        //   order_id: orderResult.order_id,
+        //   order_uuid: orderResult.order_uuid,
+        //   status: 'created',
+        //   business_name: businessInfo?.name || 'Неизвестное заведение'
+        // });
         console.log(`Уведомление о создании заказа ${orderResult.order_id} отправлено пользователю ${user_id}`);
       } catch (notificationError) {
         console.error('Ошибка отправки уведомления о создании заказа:', notificationError);
@@ -330,7 +427,7 @@ export class OrderController {
         data: {
           order_id: orderResult.order_id,
           order_uuid: orderResult.order_uuid,
-          message: card_id ? 'Заказ создан. Для оплаты используйте POST /api/orders/' + orderResult.order_id + '/pay' : 'Заказ успешно создан'
+          message: halyk_id ? 'Заказ создан. Для оплаты используйте POST /api/orders/' + orderResult.order_id + '/pay' : 'Заказ успешно создан'
         },
         message: 'Заказ успешно создан'
       });
@@ -341,6 +438,392 @@ export class OrderController {
         success: false,
         error: error.message
       });
+    }
+  }
+
+  /**
+   * Создание заказа без оплаты
+   * POST /api/orders/create-order-no-payment
+   * 
+   * @description Создает новый заказ для авторизованного пользователя без автоматического
+   * списания средств. Автоматически создает новый адрес доставки из переданных адресных полей.
+   * Заказ создается с флагом is_canceled=0 и может быть оплачен позже.
+   * 
+   * @param {AuthRequest} req - Запрос с авторизованным пользователем
+   * @param {Response} res - Ответ сервера  
+   * @param {NextFunction} next - Функция передачи управления
+   * 
+   * @body {Object} req.body - Тело запроса
+   * @body {number} business_id - ID бизнеса (обязательно)
+   * @body {string} street - Название улицы (обязательно для доставки)
+   * @body {string} house - Номер дома (обязательно для доставки)
+   * @body {string} [apartment] - Номер квартиры (опционально)
+   * @body {string} [entrance] - Номер подъезда (опционально)
+   * @body {string} [floor] - Этаж (опционально)
+   * @body {string} [comment] - Комментарий к адресу (опционально)
+   * @body {number} lat - Широта адреса (обязательно для доставки)
+   * @body {number} lon - Долгота адреса (обязательно для доставки)
+   * @body {Array} items - Массив товаров заказа (обязательно)
+   * @body {number} items[].item_id - ID товара
+   * @body {number} items[].amount - Количество товара
+   * @body {Array} [items[].options] - Опции товара
+   * @body {number} items[].options[].option_item_relation_id - ID опции
+   * @body {number} items[].options[].amount - Количество опции
+   * @body {number} [bonus=0] - Бонусы к списанию
+   * @body {string} [extra] - Дополнительные данные
+   * @body {string} delivery_type - Тип доставки: DELIVERY, PICKUP, SCHEDULED
+   * @body {string} [delivery_date] - Дата доставки (для SCHEDULED) в формате ISO
+   * 
+   * @returns {Object} Данные созданного заказа
+   * 
+   * @throws {400} Не указаны обязательные поля
+   * @throws {401} Необходима авторизация
+   * @throws {404} Бизнес не найден
+   * @throws {500} Ошибка создания заказа
+   * 
+   * @example
+   * POST /api/orders/create-order-no-payment
+   * Authorization: Bearer {token}
+   * {
+   *   "business_id": 2,
+   *   "street": "ул. Пушкина",
+   *   "house": "10",
+   *   "apartment": "15",
+   *   "entrance": "2", 
+   *   "floor": "3",
+   *   "comment": "Код домофона 1234",
+   *   "lat": 52.271643,
+   *   "lon": 76.950011,
+   *   "items": [
+   *     {
+   *       "item_id": 100,
+   *       "amount": 2,
+   *       "options": [
+   *         {
+   *           "option_item_relation_id": 10,
+   *           "amount": 1
+   *         }
+   *       ]
+   *     }
+   *   ],
+   *   "delivery_type": "SCHEDULED",
+   *   "delivery_date": "2024-01-15T14:00:00.000Z"
+   * }
+   */
+  static async createOrderNoPayment(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { 
+        business_id, 
+        street,
+        house,
+        apartment,
+        entrance,
+        floor,
+        comment,
+        lat,
+        lon,
+        items, 
+        bonus = 0, 
+        extra = '',
+        delivery_type = 'DELIVERY',
+        delivery_date
+      } = req.body;
+
+      // Проверяем авторизацию пользователя
+      if (!req.user) {
+        return next(createError(401, 'Необходима авторизация'));
+      }
+
+      const user_id = req.user.user_id;
+
+      // Входные проверки
+      if (!business_id || !items || items.length === 0) {
+        return next(createError(400, 'Не все обязательные поля заполнены'));
+      }
+
+      // Проверяем корректность данных товаров
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item.item_id || typeof item.item_id !== 'number') {
+          return next(createError(400, `Товар ${i + 1}: отсутствует или некорректный item_id`));
+        }
+        
+        // Проверяем amount - может быть числом или строкой, содержащей число
+        const amount = typeof item.amount === 'string' ? parseFloat(item.amount) : item.amount;
+        if (!item.amount || isNaN(amount) || amount <= 0) {
+          return next(createError(400, `Товар ${i + 1}: отсутствует или некорректное количество amount`));
+        }
+        
+        // Обновляем значение amount в объекте для дальнейшего использования
+        item.amount = amount;
+      }
+
+      // Для доставки проверяем адрес
+      if (delivery_type === 'DELIVERY' || delivery_type === 'SCHEDULED') {
+        if (!street || !house || lat === undefined || lon === undefined) {
+          const deliveryTypeText = delivery_type === 'SCHEDULED' ? 'запланированной доставки' : 'доставки';
+          return next(createError(400, `Для ${deliveryTypeText} необходимо указать адрес: street, house, lat, lon`));
+        }
+      }
+
+      // Для запланированной доставки проверяем дату
+      if (delivery_type === 'SCHEDULED') {
+        if (!delivery_date) {
+          return next(createError(400, 'Для запланированной доставки необходимо указать дату delivery_date'));
+        }
+        
+        const scheduledDate = new Date(delivery_date);
+        const now = new Date();
+        
+        if (scheduledDate <= now) {
+          return next(createError(400, 'Дата запланированной доставки должна быть в будущем'));
+        }
+        
+        // Проверяем, что дата не слишком далеко в будущем (например, не более 30 дней)
+        const maxFutureDate = new Date();
+        maxFutureDate.setDate(maxFutureDate.getDate() + 30);
+        
+        if (scheduledDate > maxFutureDate) {
+          return next(createError(400, 'Дата запланированной доставки не может быть более чем на 30 дней вперед'));
+        }
+        
+        console.log('Запланированная доставка на:', scheduledDate.toISOString());
+      }
+
+      console.log('Начинаем создание заказа без оплаты для пользователя:', user_id);
+      console.log('Получены товары:', JSON.stringify(items, null, 2));
+
+      // Проверяем существование бизнеса
+      const business = await prisma.businesses.findUnique({
+        where: { business_id }
+      });
+
+      if (!business) {
+        return next(createError(404, 'Бизнес не найден'));
+      }
+
+      const order_uuid = OrderController.generateNumericOrderUuid(user_id);
+
+      // Рассчитываем стоимость доставки ДО транзакции
+      let deliveryPrice = 0;
+      if (delivery_type === 'DELIVERY' || delivery_type === 'SCHEDULED') {
+        try {
+          const deliveryResult = await DeliveryController.calculateDeliveryZone({
+            lat: parseFloat(lat),
+            lon: parseFloat(lon),
+            business_id
+          });
+          
+          if (deliveryResult.in_zone && deliveryResult.price !== false) {
+            deliveryPrice = Number(deliveryResult.price);
+            
+            // Для запланированной доставки может быть другая стоимость
+            if (delivery_type === 'SCHEDULED') {
+              // Можно добавить дополнительную логику для SCHEDULED доставки
+              // например, увеличить стоимость или применить другие правила
+              console.log('Рассчитана стоимость запланированной доставки:', deliveryPrice);
+            } else {
+              console.log('Рассчитана стоимость обычной доставки:', deliveryPrice);
+            }
+          } else {
+            const deliveryTypeText = delivery_type === 'SCHEDULED' ? 'Запланированная доставка' : 'Доставка';
+            return next(createError(400, `${deliveryTypeText} недоступна: ${deliveryResult.message}`));
+          }
+        } catch (deliveryError: any) {
+          console.error('Ошибка расчета доставки:', deliveryError);
+          return next(createError(500, 'Ошибка расчета доставки'));
+        }
+      }
+
+      // Создаем заказ и все связанные данные в транзакции
+      const orderResult = await prisma.$transaction(async (tx) => {
+        let address_id = null;
+
+        // Создаем адрес для доставки, если это доставка
+        if (delivery_type === 'DELIVERY' || delivery_type === 'SCHEDULED') {
+          const addressData = {
+            user_id,
+            address: street + ', ' + house + (apartment ? ', кв.' + apartment : ''),
+            name: delivery_type === 'SCHEDULED' ? 'Адрес запланированной доставки' : 'Адрес доставки',
+            apartment: apartment || '',
+            entrance: entrance || '',
+            floor: floor || '',
+            other: comment || '',
+            lat: parseFloat(lat),
+            lon: parseFloat(lon),
+            isDeleted: 0
+          };
+
+          const newAddress = await tx.user_addreses.create({
+            data: addressData
+          });
+
+          address_id = newAddress.address_id;
+          const addressType = delivery_type === 'SCHEDULED' ? 'запланированной доставки' : 'доставки';
+          console.log(`Создан новый адрес ${addressType} с ID:`, address_id);
+        }
+
+        // Создаем заказ
+        const orderData: any = {
+          business_id,
+          user_id,
+          order_uuid,
+          address_id: address_id || 1, // Обязательное поле, ставим дефолтное значение если нет адреса
+          delivery_price: deliveryPrice, // Добавляем стоимость доставки
+          bonus,
+          extra,
+          delivery_type: delivery_type as orders_delivery_type,
+          delivery_date: delivery_date ? new Date(delivery_date) : null,
+          is_canceled: 0 // Заказ не отменен
+        };
+
+        const order = await tx.orders.create({
+          data: orderData
+        });
+
+        console.log('Создан заказ с ID:', order.order_id);
+
+        // Создаем статус заказа (новый заказ без оплаты)
+        await tx.order_status.create({
+          data: {
+            order_id: order.order_id,
+            status: 66, // Статус 66 - новый заказ без оплаты
+            isCanceled: 0,
+            log_timestamp: new Date()
+          }
+        });
+
+        console.log('Создан статус заказа для order_id:', order.order_id);
+
+        // Добавляем товары в заказ
+        for (const item of items) {
+          // Дополнительная проверка на всякий случай
+          if (!item.item_id || typeof item.item_id !== 'number') {
+            throw new Error(`Некорректный item_id: ${item.item_id}`);
+          }
+          
+          console.log('Обрабатываем товар с ID:', item.item_id);
+          
+          // Получаем данные товара для определения цены
+          const itemData = await tx.items.findUnique({
+            where: { item_id: item.item_id }
+          });
+
+          if (!itemData) {
+            throw new Error(`Товар с ID ${item.item_id} не найден`);
+          }
+
+          const itemPrice = Number(itemData.price || 0);
+
+          // Проверяем активные акции для данного товара
+          let appliedPromotionDetailId = null;
+          
+          // Поиск акций для конкретного товара (аналог SQL запроса)
+          const now = new Date();
+          const promotionDetailsRaw = await tx.$queryRaw`
+            SELECT 
+              mpd.detail_id,
+              mpd.type,
+              mpd.base_amount,
+              mpd.add_amount,
+              mpd.discount,
+              mp.start_promotion_date,
+              mp.end_promotion_date
+            FROM marketing_promotion_details mpd
+            LEFT JOIN marketing_promotions mp ON mp.marketing_promotion_id = mpd.marketing_promotion_id
+            WHERE mpd.item_id = ${item.item_id}
+              AND mp.start_promotion_date < NOW()
+              AND mp.end_promotion_date > NOW()
+              AND mp.visible = 1
+            ORDER BY mpd.discount DESC
+            LIMIT 1
+          `;
+
+          // Берем первую (лучшую) акцию если она есть
+          if (Array.isArray(promotionDetailsRaw) && promotionDetailsRaw.length > 0) {
+            appliedPromotionDetailId = (promotionDetailsRaw[0] as any).detail_id;
+            console.log('Применена акция detail_id:', appliedPromotionDetailId, 'для товара:', item.item_id);
+          }
+
+          const orderItem = await tx.orders_items.create({
+            data: {
+              order_id: order.order_id,
+              item_id: item.item_id,
+              amount: item.amount,
+              price: itemPrice, // Цена из таблицы items
+              marketing_promotion_detail_id: appliedPromotionDetailId // ID примененной акции
+            }
+          });
+
+          console.log('Добавлен товар:', orderItem);
+
+          // Добавляем опции товара
+          if (item.options && item.options.length > 0) {
+            for (const option of item.options) {
+              // Получаем данные опции для определения цены
+              const optionData = await tx.option_items.findUnique({
+                where: { relation_id: option.option_item_relation_id }
+              });
+
+              if (optionData) {
+                await tx.order_items_options.create({
+                  data: {
+                    order_item_relation_id: orderItem.relation_id,
+                    item_id: item.item_id,
+                    option_item_relation_id: option.option_item_relation_id,
+                    order_id: order.order_id,
+                    price: Number(optionData.price || 0), // Цена из таблицы option_items
+                    amount: option.amount
+                  }
+                });
+              }
+            }
+          }
+        }
+
+        // Рассчитываем итоговую стоимость заказа
+        const totals = await OrderController.calculateOrderTotalInTransaction(tx, order.order_id);
+        
+        console.log('Заказ создан без оплаты. Итоговая сумма:', totals.total_sum);
+        console.log('Сумма до доставки:', totals.sum_before_delivery, 'Стоимость доставки:', deliveryPrice);
+
+        return {
+          success: true,
+          order_id: order.order_id,
+          order_uuid: order_uuid,
+          total_sum: totals.total_sum,
+          delivery_price: deliveryPrice,
+          address_id
+        };
+      }, {
+        maxWait: 10000,
+        timeout: 15000
+      });
+
+      // Отправляем уведомление о создании заказа
+      try {
+        console.log('Уведомление о заказе отправлено');
+      } catch (notificationError) {
+        console.error('Ошибка отправки уведомления:', notificationError);
+      }
+
+      res.status(201).json({
+        success: true,
+        data: {
+          order_id: orderResult.order_id,
+          order_uuid: orderResult.order_uuid,
+          total_sum: orderResult.total_sum,
+          delivery_price: orderResult.delivery_price,
+          address_id: orderResult.address_id,
+          is_canceled: 0,
+          delivery_type: delivery_type
+        },
+        message: 'Заказ создан без оплаты. Используйте API платежей для оплаты заказа.'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка создания заказа без оплаты:', error);
+      next(createError(500, `Ошибка создания заказа: ${error.message}`));
     }
   }
 
@@ -358,9 +841,62 @@ export class OrderController {
 
     let sumBeforeDelivery = 0;
     
-    // Считаем стоимость товаров
+    // Считаем стоимость товаров с учетом акций
     for (const item of orderItems) {
-      sumBeforeDelivery += Number(item.price || 0) * Number(item.amount || 0);
+      const itemPrice = Number(item.price || 0);
+      const itemAmount = Number(item.amount || 0);
+      let itemCost = itemPrice * itemAmount;
+
+      // Если есть примененная акция, получаем ее детали и пересчитываем стоимость
+      if (item.marketing_promotion_detail_id) {
+        try {
+          const promotionDetail = await tx.marketing_promotion_details.findUnique({
+            where: { detail_id: item.marketing_promotion_detail_id }
+          });
+
+          if (promotionDetail) {
+            if (promotionDetail.type === 'SUBTRACT') {
+              // Акция типа SUBTRACT: например, купи 2 получи 1 бесплатно
+              const baseAmount = Number(promotionDetail.base_amount || 0);
+              const addAmount = Number(promotionDetail.add_amount || 0);
+              
+              if (baseAmount > 0 && addAmount > 0 && itemAmount >= baseAmount) {
+                // Сколько полных наборов акции
+                const fullSets = Math.floor(itemAmount / (baseAmount + addAmount));
+                const remainder = itemAmount % (baseAmount + addAmount);
+                
+                // Количество товаров к оплате
+                let chargedAmount = fullSets * baseAmount;
+                
+                // Обрабатываем остаток
+                if (remainder >= baseAmount) {
+                  // Если остаток больше базового количества, добавляем базовое количество к оплате
+                  chargedAmount += baseAmount;
+                } else {
+                  // Если остаток меньше базового количества, добавляем весь остаток к оплате
+                  chargedAmount += remainder;
+                }
+                
+                itemCost = itemPrice * chargedAmount;
+                console.log(`Применена акция SUBTRACT для товара ${item.item_id}: было ${itemAmount}, к оплате ${chargedAmount}`);
+              }
+            } else if (promotionDetail.type === 'DISCOUNT') {
+              // Акция типа DISCOUNT: скидка в процентах
+              const discountPercent = Number(promotionDetail.discount || 0);
+              if (discountPercent > 0) {
+                const discountAmount = (itemCost * discountPercent) / 100;
+                itemCost = itemCost - discountAmount;
+                console.log(`Применена акция DISCOUNT для товара ${item.item_id}: скидка ${discountPercent}%, сумма со скидкой ${itemCost}`);
+              }
+            }
+          }
+        } catch (promotionError) {
+          console.error('Ошибка применения акции:', promotionError);
+          // В случае ошибки используем обычную стоимость без акции
+        }
+      }
+
+      sumBeforeDelivery += itemCost;
     }
 
     // Считаем стоимость опций
@@ -396,9 +932,62 @@ export class OrderController {
 
     let sumBeforeDelivery = 0;
     
-    // Считаем стоимость товаров
+    // Считаем стоимость товаров с учетом акций
     for (const item of orderItems) {
-      sumBeforeDelivery += Number(item.price || 0) * Number(item.amount || 0);
+      const itemPrice = Number(item.price || 0);
+      const itemAmount = Number(item.amount || 0);
+      let itemCost = itemPrice * itemAmount;
+
+      // Если есть примененная акция, получаем ее детали и пересчитываем стоимость
+      if (item.marketing_promotion_detail_id) {
+        try {
+          const promotionDetail = await prisma.marketing_promotion_details.findUnique({
+            where: { detail_id: item.marketing_promotion_detail_id }
+          });
+
+          if (promotionDetail) {
+            if (promotionDetail.type === 'SUBTRACT') {
+              // Акция типа SUBTRACT: например, купи 2 получи 1 бесплатно
+              const baseAmount = Number(promotionDetail.base_amount || 0);
+              const addAmount = Number(promotionDetail.add_amount || 0);
+              
+              if (baseAmount > 0 && addAmount > 0 && itemAmount >= baseAmount) {
+                // Сколько полных наборов акции
+                const fullSets = Math.floor(itemAmount / (baseAmount + addAmount));
+                const remainder = itemAmount % (baseAmount + addAmount);
+                
+                // Количество товаров к оплате
+                let chargedAmount = fullSets * baseAmount;
+                
+                // Обрабатываем остаток
+                if (remainder >= baseAmount) {
+                  // Если остаток больше базового количества, добавляем базовое количество к оплате
+                  chargedAmount += baseAmount;
+                } else {
+                  // Если остаток меньше базового количества, добавляем весь остаток к оплате
+                  chargedAmount += remainder;
+                }
+                
+                itemCost = itemPrice * chargedAmount;
+                console.log(`Применена акция SUBTRACT для товара ${item.item_id}: было ${itemAmount}, к оплате ${chargedAmount}`);
+              }
+            } else if (promotionDetail.type === 'DISCOUNT') {
+              // Акция типа DISCOUNT: скидка в процентах
+              const discountPercent = Number(promotionDetail.discount || 0);
+              if (discountPercent > 0) {
+                const discountAmount = (itemCost * discountPercent) / 100;
+                itemCost = itemCost - discountAmount;
+                console.log(`Применена акция DISCOUNT для товара ${item.item_id}: скидка ${discountPercent}%, сумма со скидкой ${itemCost}`);
+              }
+            }
+          }
+        } catch (promotionError) {
+          console.error('Ошибка применения акции:', promotionError);
+          // В случае ошибки используем обычную стоимость без акции
+        }
+      }
+
+      sumBeforeDelivery += itemCost;
     }
 
     // Считаем стоимость опций
@@ -423,29 +1012,69 @@ export class OrderController {
   /**
    * Оплата заказа картой
    * POST /api/orders/:id/pay
+   * 
+   * @param card_id - Прямой ID карты из системы Halyk Bank (например: "2d1419c5-379a-d8cd-e063-1b01010a6414")
    */
-  static async payOrder(req: AuthRequest, res: Response, next: NextFunction) {
+  static async payOrder(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const orderId = parseInt(req.params.id);
       const { card_id, payment_type = 'card' } = req.body;
 
       if (isNaN(orderId)) {
-        return next(createError(400, 'Неверный ID заказа'));
+        res.status(400).json({
+          success: false,
+          error: {
+            message: 'Неверный ID заказа',
+            statusCode: 400,
+            timestamp: new Date().toISOString()
+          }
+        });
+        return;
       }
 
       // Валидация типа оплаты
       if (!['card', 'page'].includes(payment_type)) {
-        return next(createError(400, 'Неверный тип оплаты. Доступны: "card" (сохраненная карта), "page" (страница оплаты)'));
+        res.status(400).json({
+          success: false,
+          error: {
+            message: 'Неверный тип оплаты',
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+            details: {
+              validation_errors: ['payment_type должен быть "card" или "page"']
+            }
+          }
+        });
+        return;
       }
 
       // Для оплаты сохраненной картой card_id обязателен
       if (payment_type === 'card' && !card_id) {
-        return next(createError(400, 'Для оплаты сохраненной картой необходимо указать card_id'));
+        res.status(400).json({
+          success: false,
+          error: {
+            message: 'Неверные параметры запроса',
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+            details: {
+              validation_errors: ['card_id обязателен для payment_type "card"']
+            }
+          }
+        });
+        return;
       }
 
       // Проверяем авторизацию пользователя
       if (!req.user) {
-        return next(createError(401, 'Необходима авторизация'));
+        res.status(401).json({
+          success: false,
+          error: {
+            message: 'Токен авторизации недействителен',
+            statusCode: 401,
+            timestamp: new Date().toISOString()
+          }
+        });
+        return;
       }
 
       const user_id = req.user.user_id;
@@ -456,11 +1085,27 @@ export class OrderController {
       });
 
       if (!order) {
-        return next(createError(404, 'Заказ не найден'));
+        res.status(404).json({
+          success: false,
+          error: {
+            message: 'Заказ не найден',
+            statusCode: 404,
+            timestamp: new Date().toISOString()
+          }
+        });
+        return;
       }
 
       if (order.user_id !== user_id) {
-        return next(createError(403, 'Доступ запрещен - заказ принадлежит другому пользователю'));
+        res.status(403).json({
+          success: false,
+          error: {
+            message: 'Доступ запрещен',
+            statusCode: 403,
+            timestamp: new Date().toISOString()
+          }
+        });
+        return;
       }
 
       // Проверяем статус заказа
@@ -470,28 +1115,65 @@ export class OrderController {
       });
 
       if (!currentStatus) {
-        return next(createError(400, 'Не найден статус заказа'));
+        res.status(400).json({
+          success: false,
+          error: {
+            message: 'Не найден статус заказа',
+            statusCode: 400,
+            timestamp: new Date().toISOString()
+          }
+        });
+        return;
       }
 
       // Проверяем, можно ли оплачивать заказ
       if (currentStatus.status === 0) {
-        return res.json({
+        res.json({
           success: true,
-          data: { message: 'Заказ уже оплачен' },
+          data: { 
+            order_id: orderId,
+            payment_status: 'already_paid',
+            message: 'Заказ уже оплачен' 
+          },
           message: 'Заказ уже оплачен'
         });
+        return;
       }
 
       if (currentStatus.isCanceled === 1) {
-        return next(createError(400, 'Нельзя оплатить отмененный заказ'));
+        res.status(400).json({
+          success: false,
+          error: {
+            message: 'Нельзя оплатить отмененный заказ',
+            statusCode: 400,
+            timestamp: new Date().toISOString()
+          }
+        });
+        return;
       }
 
       // Оплачивать можно только новые заказы (статус 66)
       if (currentStatus.status !== 66) {
         if (currentStatus.status >= 1 && currentStatus.status <= 5) {
-          return next(createError(400, 'Заказ уже в процессе выполнения или доставлен'));
+          res.status(400).json({
+            success: false,
+            error: {
+              message: 'Заказ уже в процессе выполнения или доставлен',
+              statusCode: 400,
+              timestamp: new Date().toISOString()
+            }
+          });
+          return;
         } else {
-          return next(createError(400, 'Заказ находится в неподходящем для оплаты статусе'));
+          res.status(400).json({
+            success: false,
+            error: {
+              message: 'Заказ находится в неподходящем для оплаты статусе',
+              statusCode: 400,
+              timestamp: new Date().toISOString()
+            }
+          });
+          return;
         }
       }
 
@@ -502,7 +1184,7 @@ export class OrderController {
 
         if (payment_type === 'card') {
           // Оплата сохраненной картой
-          console.log('Оплата сохраненной картой:', card_id);
+          console.log('Оплата сохраненной картой с Halyk ID:', card_id);
           paymentResult = await OrderController.processCardPayment(orderId, user_id, card_id);
         } else {
           // Создание ссылки для оплаты на странице
@@ -512,30 +1194,112 @@ export class OrderController {
 
         console.log('Результат платежа:', paymentResult);
 
+        // Проверяем успешность платежа для корректного HTTP статуса
+        if (paymentResult.status === 'payment_declined') {
+          res.status(400).json({
+            success: false,
+            error: {
+              message: paymentResult.message || 'Платеж отклонен банком',
+              statusCode: 400,
+              timestamp: new Date().toISOString(),
+              details: {
+                halyk_error: {
+                  code: paymentResult.error_code || paymentResult.halyk_response?.code || -1,
+                  message: paymentResult.message || 'Payment declined'
+                }
+              }
+            }
+          });
+          return;
+        }
+
+        if (paymentResult.status === 'payment_error') {
+          res.status(502).json({
+            success: false,
+            error: {
+              message: 'Ошибка при обработке платежа в банке',
+              statusCode: 502,
+              timestamp: new Date().toISOString(),
+              details: {
+                halyk_error: {
+                  code: paymentResult.error_code || -1,
+                  message: paymentResult.message || 'Bank processing error'
+                }
+              }
+            }
+          });
+          return;
+        }
+
+        if (paymentResult.status === 'system_error') {
+          res.status(500).json({
+            success: false,
+            error: {
+              message: 'Системная ошибка при обработке платежа',
+              statusCode: 500,
+              timestamp: new Date().toISOString(),
+              details: {
+                internal_error: paymentResult.message || 'System error'
+              }
+            }
+          });
+          return;
+        }
+
+        // Проверяем, что платеж действительно успешен
+        if (paymentResult.status !== 'ok' && paymentResult.status !== 'redirect') {
+          res.status(400).json({
+            success: false,
+            error: {
+              message: paymentResult.message || 'Неизвестная ошибка при обработке платежа',
+              statusCode: 400,
+              timestamp: new Date().toISOString(),
+              details: {
+                payment_status: paymentResult.status
+              }
+            }
+          });
+          return;
+        }
+
+        // Успешная оплата или создание ссылки
         res.json({
           success: true,
           data: {
             order_id: orderId,
-            payment_type: payment_type,
-            payment_result: paymentResult
+            payment_status: paymentResult.status === 'ok' ? 'completed' : 'pending',
+            halyk_response: paymentResult.halyk_response || paymentResult
           },
-          message: paymentResult.status === 'ok' || paymentResult.status === 'redirect' 
-            ? (payment_type === 'card' ? 'Заказ успешно оплачен' : 'Ссылка для оплаты создана')
-            : 'Ошибка при оплате заказа'
+          message: paymentResult.status === 'ok' 
+            ? (payment_type === 'card' ? 'Оплата успешно проведена' : 'Ссылка для оплаты создана')
+            : 'Платеж в обработке'
         });
 
       } catch (paymentError: any) {
         console.error('Ошибка обработки платежа:', paymentError);
         res.status(500).json({
           success: false,
-          error: paymentError.message,
-          message: 'Ошибка при обработке платежа'
+          error: {
+            message: 'Внутренняя ошибка сервера при обработке платежа',
+            statusCode: 500,
+            timestamp: new Date().toISOString(),
+            details: {
+              internal_error: paymentError.message
+            }
+          }
         });
       }
 
     } catch (error: any) {
       console.error('Ошибка оплаты заказа:', error);
-      next(createError(500, `Ошибка оплаты заказа: ${error.message}`));
+      res.status(500).json({
+        success: false,
+        error: {
+          message: 'Внутренняя ошибка сервера',
+          statusCode: 500,
+          timestamp: new Date().toISOString()
+        }
+      });
     }
   }
 
@@ -711,9 +1475,10 @@ export class OrderController {
   }
 
   /**
-   * Обработка платежа картой (аналог pay2 PHP)
+   * Обработка платежа картой (принимает прямой Halyk card ID)
+   * @param halykCardId - ID карты из системы Halyk Bank
    */
-  private static async processCardPayment(orderId: number, userId: number, cardId: number): Promise<any> {
+  private static async processCardPayment(orderId: number, userId: number, halykCardId: string): Promise<any> {
     try {
       // Получаем данные заказа
       const order = await prisma.orders.findUnique({
@@ -733,21 +1498,12 @@ export class OrderController {
         throw new Error('Пользователь не найден');
       }
 
-      // Получаем данные карты
-      const card = await prisma.halyk_saved_cards.findFirst({
-        where: {
-          user_id: userId,
-          card_id: cardId
-        }
-      });
-
-      if (!card) {
-        throw new Error('Карта не найдена');
-      }
+      // Используем переданный Halyk card ID напрямую
+      console.log('Используем Halyk card ID:', halykCardId);
 
       // Получаем стоимость заказа
       const orderTotal = await OrderController.calculateOrderTotal(orderId);
-      const amount = Math.round(orderTotal.total_sum * 1); // В тийинах
+      const amount = Math.round(orderTotal.total_sum ); // В тийинах
 
       console.log('Сумма к оплате:', amount, 'тийин (', orderTotal.total_sum, 'тенге)');
 
@@ -765,28 +1521,34 @@ export class OrderController {
 
       console.log('Получен токен:', token.access_token.substring(0, 20) + '...');
 
-      // Формируем данные для платежа (точно как в PHP)
+      // Формируем данные для платежа (точно как в документации)
       const paymentData = {
         amount: amount,
         currency: 'KZT',
         name: user.name || user.login,
         terminalId: 'bb4dec49-6e30-41d0-b16b-8ba1831a854b',
         invoiceId: order.order_uuid,
-        description: 'Доставка алкоголя',
+        description: 'Оплата заказа доставки',
         accountId: user.user_id.toString(),
+        email: '', // email не хранится в нашей модели user
+        phone: user.login || '',
         backLink: 'https://chorenn.naliv.kz/success',
         failureBackLink: 'https://chorenn.naliv.kz/failure',
         postLink: 'https://chorenn.naliv.kz/api/payment.php',
+        failurePostLink: 'https://chorenn.naliv.kz/api/payment.php',
         language: 'rus',
-        paymentType: 'cardId',
-        cardId: { id: card.halyk_card_id }
+        paymentType: 'cardId', // Ключевой параметр для оплаты сохраненной картой
+        cardId: {
+          id: halykCardId
+        }
       };
 
       console.log('Отправляем данные платежа в Halyk Bank:');
       console.log('- Сумма:', amount, 'тийин');
       console.log('- Валюта:', paymentData.currency);
       console.log('- Invoice ID:', paymentData.invoiceId);
-      console.log('- Card ID:', card.halyk_card_id);
+      console.log('- Card ID:', halykCardId);
+      console.log('- Payment Type:', paymentData.paymentType);
 
       // Отправляем запрос на оплату
       const response = await fetch('https://epay-api.homebank.kz/payments/cards/auth', {
@@ -814,84 +1576,143 @@ export class OrderController {
         
         console.log('Платеж успешно обработан:', halykResponse);
         
-        // Обновляем статус заказа и payment_id (как в PHP)
-        await prisma.order_status.create({
-          data: {
-            order_id: orderId,
-            status: 0, // Статус 0 как в PHP - оплачено
-            isCanceled: 0,
-            log_timestamp: new Date()
-          }
-        });
+        // Проверяем статус платежа
+        if (halykResponse.code === 0 && halykResponse.status === 'AUTH') {
+          // Обновляем статус заказа на "оплачен"
+          await prisma.order_status.create({
+            data: {
+              order_id: orderId,
+              status: 0, // Статус 0 - заказ оплачен
+              isCanceled: 0,
+              log_timestamp: new Date()
+            }
+          });
 
-        if (halykResponse.id) {
+          // Обновляем payment_id в заказе
           await prisma.orders.update({
             where: { order_id: orderId },
-            data: { payment_id: halykResponse.id }
+            data: { 
+              payment_id: halykResponse.id || halykResponse.reference || null
+            }
           });
-          console.log('Обновлен payment_id заказа:', halykResponse.id);
+
+          console.log('Статус заказа обновлен на "оплачен"');
+
+          return {
+            status: 'ok',
+            message: 'Оплата прошла успешно',
+            payment_id: halykResponse.id,
+            reference: halykResponse.reference,
+            amount: orderTotal.total_sum,
+            order_id: orderId,
+            card_id: halykCardId,
+            halyk_response: {
+              id: halykResponse.id,
+              accountId: halykResponse.accountId,
+              amount: halykResponse.amount,
+              currency: halykResponse.currency,
+              reference: halykResponse.reference,
+              intReference: halykResponse.intReference,
+              status: halykResponse.status,
+              code: halykResponse.code
+            }
+          };
+        } else {
+          // Платеж не прошел - обрабатываем ошибку
+          const errorCode = halykResponse.code || -1;
+          const errorMessage = halykResponse.message || 'Неизвестная ошибка банка';
+          
+          console.error('Платеж отклонен банком:', errorCode, errorMessage);
+          
+          // Логируем ошибку в базу данных
+          try {
+            await prisma.order_status.create({
+              data: {
+                order_id: orderId,
+                status: 67, // Статус ошибки оплаты
+                isCanceled: 0,
+                log_timestamp: new Date()
+              }
+            });
+          } catch (logError) {
+            console.error('Ошибка логирования статуса ошибки:', logError);
+          }
+
+          return {
+            status: 'payment_declined',
+            message: errorMessage,
+            error_code: errorCode,
+            order_id: orderId,
+            halyk_response: halykResponse
+          };
         }
 
-        return { 
-          status: 'ok', 
-          payment_id: halykResponse.id,
-          bank_response: halykResponse
-        };
       } else {
         console.error('Ошибка платежа. Статус:', response.status, 'Ответ:', responseText);
-        
-        // Пытаемся парсить ответ для получения детальной информации
+
+        // Пытаемся парсить ответ для получения детальной информации об ошибке
         let errorInfo = responseText;
         let bankErrorCode = null;
         let bankErrorMessage = null;
-        let halykErrorInfo = null;
 
         try {
-          const errorData = JSON.parse(responseText);
-          if (errorData.code) {
-            bankErrorCode = errorData.code;
-            bankErrorMessage = errorData.message;
-            halykErrorInfo = OrderController.getHalykErrorInfo(bankErrorCode);
-            console.error('Код ошибки банка (карта):', bankErrorCode, 'Сообщение:', bankErrorMessage);
-            console.log('Обработанная ошибка:', halykErrorInfo);
-          }
+          const errorResponse = JSON.parse(responseText);
+          console.log('Ошибка банка (парсинг):', errorResponse);
+
+          bankErrorCode = errorResponse.code || response.status;
+          bankErrorMessage = errorResponse.message || `HTTP ${response.status}`;
+          errorInfo = bankErrorMessage;
         } catch (parseError) {
-          console.log('Не удалось парсить ответ банка как JSON');
+          console.error('Не удалось парсить ошибку банка:', parseError);
+          errorInfo = `Ошибка связи с банком (HTTP ${response.status})`;
+          bankErrorMessage = errorInfo;
         }
-        
-        // Определяем тип ошибки на основе кода банка
-        let errorType = 'unknown';
-        let userMessage = 'Ошибка при обработке платежа в банке';
-        
-        if (halykErrorInfo) {
-          errorType = halykErrorInfo.status;
-          userMessage = halykErrorInfo.message;
-        } else if (response.status === 400) {
-          errorType = 'bad_request';
-        } else if (response.status === 402) {
-          errorType = 'insufficient_funds';
-        } else if (response.status === 403) {
-          errorType = 'forbidden';
-        } else if (response.status >= 500) {
-          errorType = 'server_error';
+
+        // Логируем ошибку в базу данных
+        try {
+          await prisma.order_status.create({
+            data: {
+              order_id: orderId,
+              status: 67, // Статус ошибки оплаты
+              isCanceled: 0,
+              log_timestamp: new Date()
+            }
+          });
+        } catch (logError) {
+          console.error('Ошибка логирования статуса ошибки:', logError);
         }
-        
-        return { 
-          status: errorType, 
-          code: response.status,
-          bank_error_code: bankErrorCode,
-          bank_error_message: bankErrorMessage,
-          user_message: userMessage,
-          is_final: halykErrorInfo?.isFinal ?? true,
-          should_retry: halykErrorInfo?.shouldRetry ?? false,
-          info: errorInfo,
-          error_detail: userMessage
+
+        return {
+          status: 'payment_error',
+          message: bankErrorMessage || errorInfo,
+          error_code: bankErrorCode,
+          http_status: response.status,
+          order_id: orderId
         };
       }
 
     } catch (error: any) {
-      console.error('Ошибка обработки платежа:', error);
-      return { status: 'unknown', error: error.message };
+      console.error('Ошибка обработки платежа картой:', error);
+      
+      // Логируем системную ошибку
+      try {
+        await prisma.order_status.create({
+          data: {
+            order_id: orderId,
+            status: 68, // Статус системной ошибки
+            isCanceled: 0,
+            log_timestamp: new Date()
+          }
+        });
+      } catch (logError) {
+        console.error('Ошибка логирования системной ошибки:', logError);
+      }
+
+      return {
+        status: 'system_error',
+        message: error.message || 'Системная ошибка при обработке платежа',
+        order_id: orderId
+      };
     }
   }
 
@@ -1013,13 +1834,15 @@ export class OrderController {
     try {
       const data = new URLSearchParams({
         grant_type: 'client_credentials',
-        scope: 'payment',
+        scope: 'webapi usermanagement email_send verification statement statistics payment',
         client_id: 'NALIV.KZ',
         client_secret: 'B5Y56*Hw9hxcvwwY',
         invoiceID: orderUuid,
         amount: amount.toString(),
         currency: 'KZT',
-        terminal: 'bb4dec49-6e30-41d0-b16b-8ba1831a854b'
+        terminal: 'bb4dec49-6e30-41d0-b16b-8ba1831a854b',
+        postLink: 'https://chorenn.naliv.kz/api/payment.php',
+        failurePostLink: 'https://chorenn.naliv.kz/api/payment.php'
       });
 
       console.log('Запрос токена с данными:', data.toString());
@@ -1035,6 +1858,10 @@ export class OrderController {
 
       const responseText = await response.text();
       console.log('Ответ токена:', responseText);
+
+      if (!response.ok) {
+        throw new Error(`Ошибка получения токена: ${response.status} ${responseText}`);
+      }
 
       return JSON.parse(responseText);
 
@@ -2195,145 +3022,188 @@ export class OrderController {
   }
 
   /**
-   * Получение активных заказов
-   * GET /api/orders/active
+   * Получение активных заказов пользователя
+   * GET /api/orders/my-active-orders
    */
-  static async getActiveOrders(req: any, res: Response, next: NextFunction) {
+  static async getActiveOrders(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const page = parseInt(req.query.page as string) || 1;
-      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
-      const offset = (page - 1) * limit;
-      const businessId = req.query.business_id ? parseInt(req.query.business_id as string) : null;
+      // Проверяем авторизацию пользователя
+      if (!req.user) {
+        return next(createError(401, 'Необходима авторизация'));
+      }
 
-      // Определяем активные статусы (не отмененные и не доставленные)
-      const activeStatuses = [66, 0, 1, 2, 3, 4]; // NEW, PAID, PROCESSING, COLLECTED, COURIER, DELIVERY
+      const user_id = req.user.user_id;
+      const { business_id, delivery_type } = req.query;
+
+      // Определяем активные статусы (исключаем доставленные заказы)
+      const activeStatuses = [66, 0, 1, 2, 3]; // NEW, PAID, PROCESSING, COLLECTED, COURIER, DELIVERY
 
       // Строим условие для фильтрации
       const whereCondition: any = {
+        user_id: user_id,
         is_canceled: 0 // Не отмененные заказы
       };
 
       // Если указан business_id, фильтруем по нему
-      if (businessId && !isNaN(businessId)) {
-        whereCondition.business_id = businessId;
+      if (business_id) {
+        const businessIdNum = parseInt(business_id as string);
+        if (!isNaN(businessIdNum)) {
+          whereCondition.business_id = businessIdNum;
+        }
       }
 
-      // Если это запрос от авторизованного пользователя (не сотрудника), показываем только его заказы
-      // независимо от указанного business_id
-      if (req.user && !req.employee) {
-        whereCondition.user_id = req.user.user_id;
+      if (delivery_type && ['DELIVERY', 'PICKUP', 'SCHEDULED'].includes(delivery_type as string)) {
+        whereCondition.delivery_type = delivery_type as orders_delivery_type;
       }
 
-      // Получаем заказы и общее количество
-      const [orders, total] = await Promise.all([
-        prisma.orders.findMany({
-          where: whereCondition,
-          orderBy: { log_timestamp: 'desc' },
-          skip: offset,
-          take: limit
-        }),
-        prisma.orders.count({
-          where: whereCondition
-        })
-      ]);
+      console.log('Получение активных заказов пользователя:', user_id);
+
+      // Получаем все заказы пользователя
+      const orders = await prisma.orders.findMany({
+        where: whereCondition,
+        orderBy: { log_timestamp: 'desc' }
+      });
 
       // Фильтруем по активным статусам
       const activeOrders = [];
       for (const order of orders) {
         // Получаем последний статус заказа
-        const lastStatus = await prisma.order_status.findFirst({
+        const currentStatus = await prisma.order_status.findFirst({
           where: { order_id: order.order_id },
           orderBy: { log_timestamp: 'desc' }
         });
 
         // Проверяем, активен ли заказ
-        if (lastStatus && activeStatuses.includes(lastStatus.status) && lastStatus.isCanceled === 0) {
-          // Получаем дополнительную информацию
-          const [business, cost, itemsCount] = await Promise.all([
-            prisma.businesses.findUnique({
-              where: { business_id: order.business_id || 0 },
-              select: {
-                business_id: true,
-                name: true,
-                address: true,
-                logo: true
-              }
-            }),
-            prisma.orders_cost.findFirst({
-              where: { order_id: order.order_id }
-            }),
-            prisma.orders_items.count({
-              where: { order_id: order.order_id }
-            })
-          ]);
+        if (currentStatus && 
+            activeStatuses.includes(currentStatus.status) && 
+            currentStatus.isCanceled === 0) {
 
-          // Получаем информацию о пользователе (если запрос от сотрудника)
-          let user = null;
-          if (req.employee || !req.user) {
-            const userData = await prisma.user.findUnique({
-              where: { user_id: order.user_id },
+          // Получаем информацию о бизнесе
+          const business = await prisma.businesses.findUnique({
+            where: { business_id: order.business_id || 0 },
+            select: {
+              business_id: true,
+              name: true,
+              address: true,
+              logo: true,
+              img: true
+            }
+          });
+
+          // Получаем адрес доставки
+          let deliveryAddress = null;
+          if (order.address_id && order.address_id > 0) {
+            deliveryAddress = await prisma.user_addreses.findUnique({
+              where: { address_id: order.address_id },
               select: {
-                user_id: true,
+                address_id: true,
+                address: true,
                 name: true,
-                login: true
+                apartment: true,
+                entrance: true,
+                floor: true,
+                other: true,
+                lat: true,
+                lon: true
               }
             });
-            user = userData;
           }
 
-          // Мапим статус в понятное описание
-          const getStatusInfo = (status: number) => {
-            switch (status) {
-              case 66: return { name: 'Новый заказ', color: '#ffa500', icon: 'pending' };
-              case 0: return { name: 'Оплачен', color: '#4caf50', icon: 'paid' };
-              case 1: return { name: 'В обработке', color: '#2196f3', icon: 'processing' };
-              case 2: return { name: 'Собран', color: '#9c27b0', icon: 'ready' };
-              case 3: return { name: 'Передан курьеру', color: '#ff9800', icon: 'courier' };
-              case 4: return { name: 'В пути', color: '#607d8b', icon: 'delivery' };
-              default: return { name: 'Неизвестен', color: '#gray', icon: 'unknown' };
-            }
+          // Получаем товары заказа (краткая информация)
+          const orderItems = await prisma.orders_items.findMany({
+            where: { order_id: order.order_id }
+          });
+
+          const itemsCount = orderItems.length;
+          const totalItemsAmount = orderItems.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+
+          // Получаем краткую информацию о товарах для превью
+          const itemsPreview = await Promise.all(
+            orderItems.slice(0, 3).map(async (orderItem) => {
+              const item = await prisma.items.findUnique({
+                where: { item_id: orderItem.item_id },
+                select: {
+                  name: true,
+                  img: true
+                }
+              });
+
+              return {
+                name: item?.name || 'Неизвестный товар',
+                img: item?.img || '',
+                amount: Number(orderItem.amount || 0)
+              };
+            })
+          );
+
+          // Рассчитываем общую стоимость
+          // const orderTotal = await OrderController.calculateOrderTotal(order.order_id);
+
+          // Определяем описание статуса и его приоритет
+          const getStatusInfo = (statusNum: number) => {
+            const statusMap: { [key: number]: { name: string, color: string, priority: number } } = {
+              66: { name: 'Ожидает оплаты', color: '#ffa500', priority: 1 },
+              0: { name: 'Оплачен', color: '#4caf50', priority: 2 },
+              1: { name: 'Принят в работу', color: '#2196f3', priority: 3 },
+              2: { name: 'Готовится', color: '#9c27b0', priority: 4 },
+              3: { name: 'Готов к выдаче', color: '#ff9800', priority: 5 },
+              4: { name: 'В доставке', color: '#607d8b', priority: 6 }
+            };
+            return statusMap[statusNum] || { name: 'Неизвестный статус', color: '#gray', priority: 999 };
           };
 
-          const statusInfo = getStatusInfo(lastStatus.status);
+          const statusInfo = getStatusInfo(currentStatus.status);
 
           activeOrders.push({
-            ...order,
+            order_id: order.order_id,
+            order_uuid: order.order_uuid,
+            business: business,
+            delivery_type: order.delivery_type,
+            delivery_date: order.delivery_date,
+            log_timestamp: order.log_timestamp,
             current_status: {
-              status: lastStatus.status,
-              isCanceled: lastStatus.isCanceled,
-              log_timestamp: lastStatus.log_timestamp,
-              ...statusInfo,
-              time_ago: OrderController.getTimeAgo(lastStatus.log_timestamp)
+              status: currentStatus.status,
+              status_description: statusInfo.name,
+              status_color: statusInfo.color,
+              priority: statusInfo.priority,
+              is_canceled: currentStatus.isCanceled,
+              log_timestamp: currentStatus.log_timestamp
             },
-            business,
-            user,
-            cost: cost ? {
-              total: Number(cost.cost),
-              delivery: Number(cost.delivery),
-              service_fee: Number(cost.service_fee)
-            } : null,
-            items_count: itemsCount,
-            time_since_created: OrderController.getTimeAgo(order.log_timestamp)
+            delivery_address: deliveryAddress,
+            items_summary: {
+              items_count: itemsCount,
+              total_amount: totalItemsAmount,
+              items_preview: itemsPreview
+            },
+            cost_summary: {
+              // total_sum: orderTotal.total_sum,
+              delivery_price: Number(order.delivery_price || 0),
+              bonus_used: Number(order.bonus || 0)
+            }
           });
         }
       }
 
-      const totalPages = Math.ceil(activeOrders.length / limit);
+      // Сортируем по приоритету статуса (сначала ожидающие оплаты, затем в работе)
+      activeOrders.sort((a, b) => {
+        if (a.current_status.priority !== b.current_status.priority) {
+          return a.current_status.priority - b.current_status.priority;
+        }
+        
+        // Если приоритеты одинаковы, сортируем по времени создания (новые сначала)
+        return new Date(b.log_timestamp).getTime() - new Date(a.log_timestamp).getTime();
+      });
+
+      console.log(`Найдено ${activeOrders.length} активных заказов для пользователя ${user_id}`);
 
       res.json({
         success: true,
         data: {
-          orders: activeOrders,
-          pagination: {
-            current_page: page,
-            per_page: limit,
-            total: activeOrders.length,
-            total_pages: totalPages,
-            total_all_orders: total
-          },
-          filters: {
-            business_id: businessId,
-            only_user_orders: req.user && !req.employee ? req.user.user_id : null
+          active_orders: activeOrders,
+          total_active: activeOrders.length,
+          filters_applied: {
+            business_id: business_id || null,
+            delivery_type: delivery_type || null
           }
         },
         message: `Найдено ${activeOrders.length} активных заказов`
@@ -2346,97 +3216,197 @@ export class OrderController {
   }
 
   /**
-   * Получение заказов пользователя
-   * GET /api/orders/user/:userId
+   * Получение всех заказов авторизованного пользователя
+   * GET /api/orders/my-orders
    */
   static async getUserOrders(req: AuthRequest, res: Response, next: NextFunction) {
     try {
-      const userId = parseInt(req.params.userId);
+      // Проверяем авторизацию пользователя
+      if (!req.user) {
+        return next(createError(401, 'Необходима авторизация'));
+      }
+
+      const user_id = req.user.user_id;
       const page = parseInt(req.query.page as string) || 1;
-      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
       const offset = (page - 1) * limit;
+      const { status, business_id, delivery_type } = req.query;
 
-      if (isNaN(userId)) {
-        return next(createError(400, 'Неверный ID пользователя'));
+      // Формируем условия фильтрации
+      const whereConditions: any = {
+        user_id: user_id
+      };
+
+      if (business_id) {
+        const businessIdNum = parseInt(business_id as string);
+        if (!isNaN(businessIdNum)) {
+          whereConditions.business_id = businessIdNum;
+        }
       }
 
-      // Проверяем права доступа
-      if (req.user && req.user.user_id !== userId) {
-        return next(createError(403, 'Доступ запрещен'));
+      if (delivery_type && ['DELIVERY', 'PICKUP', 'SCHEDULED'].includes(delivery_type as string)) {
+        whereConditions.delivery_type = delivery_type as orders_delivery_type;
       }
+
+      console.log('Получение заказов пользователя:', user_id, 'с фильтрами:', whereConditions);
 
       const [orders, total] = await Promise.all([
         prisma.orders.findMany({
-          where: { user_id: userId },
+          where: whereConditions,
           orderBy: { log_timestamp: 'desc' },
           skip: offset,
           take: limit
         }),
         prisma.orders.count({
-          where: { user_id: userId }
+          where: whereConditions
         })
       ]);
 
       // Получаем дополнительную информацию для каждого заказа
       const ordersWithDetails = [];
       for (const order of orders) {
-        // Получаем бизнес
-        const business = await prisma.businesses.findUnique({
-          where: { business_id: order.business_id || 0 }
-        });
-
-        // Получаем последний статус
-        const status = await prisma.order_status.findFirst({
+        // Получаем последний статус заказа
+        const currentStatus = await prisma.order_status.findFirst({
           where: { order_id: order.order_id },
           orderBy: { log_timestamp: 'desc' }
         });
 
-        // Получаем стоимость
-        const cost = await prisma.orders_cost.findFirst({
+        // Фильтрация по статусу если указан
+        if (status && currentStatus?.status !== parseInt(status as string)) {
+          continue;
+        }
+
+        // Получаем бизнес
+        const business = await prisma.businesses.findUnique({
+          where: { business_id: order.business_id || 0 },
+          select: {
+            business_id: true,
+            name: true,
+            address: true,
+            logo: true,
+            img: true
+          }
+        });
+
+        // Получаем адрес доставки
+        let deliveryAddress = null;
+        if (order.address_id && order.address_id > 0) {
+          deliveryAddress = await prisma.user_addreses.findUnique({
+            where: { address_id: order.address_id },
+            select: {
+              address_id: true,
+              address: true,
+              name: true,
+              apartment: true,
+              entrance: true,
+              floor: true,
+              other: true,
+              lat: true,
+              lon: true
+            }
+          });
+        }
+
+        // Получаем товары заказа
+        const orderItems = await prisma.orders_items.findMany({
           where: { order_id: order.order_id }
         });
 
-        // Считаем количество товаров
-        const itemsCount = await prisma.orders_items.count({
-          where: { order_id: order.order_id }
-        });
+        // Получаем информацию о товарах
+        const itemsWithDetails = await Promise.all(
+          orderItems.map(async (orderItem) => {
+            const item = await prisma.items.findUnique({
+              where: { item_id: orderItem.item_id },
+              select: {
+                item_id: true,
+                name: true,
+                description: true,
+                img: true,
+                unit: true
+              }
+            });
+
+            return {
+              relation_id: orderItem.relation_id,
+              item_id: orderItem.item_id,
+              name: item?.name || 'Неизвестный товар',
+              description: item?.description || '',
+              img: item?.img || '',
+              amount: Number(orderItem.amount || 0),
+              price: Number(orderItem.price || 0),
+              unit: item?.unit || 'шт',
+              total_cost: Number(orderItem.amount || 0) * Number(orderItem.price || 0)
+            };
+          })
+        );
+
+        // Рассчитываем общую стоимость заказа
+        const itemsTotal = itemsWithDetails.reduce((sum, item) => sum + item.total_cost, 0);
+        const deliveryPrice = Number(order.delivery_price || 0);
+        const bonusUsed = Number(order.bonus || 0);
+        const totalSum = itemsTotal + deliveryPrice - bonusUsed;
+
+        // Определяем описание статуса
+        const getStatusDescription = (statusNum: number): string => {
+          const statusDescriptions: { [key: number]: string } = {
+            0: 'Оплачен',
+            1: 'Принят в работу',
+            2: 'Готовится',
+            3: 'Готов к выдаче',
+            4: 'В доставке',
+            5: 'Доставлен',
+            66: 'Ожидает оплаты'
+          };
+          return statusDescriptions[statusNum] || 'Неизвестный статус';
+        };
 
         ordersWithDetails.push({
-          ...order,
-          business: business ? {
-            id: business.business_id,
-            name: business.name,
-            address: business.address,
-            logo: business.logo
+          order_id: order.order_id,
+          order_uuid: order.order_uuid,
+          business: business,
+          delivery_type: order.delivery_type,
+          delivery_date: order.delivery_date,
+          delivery_price: deliveryPrice,
+          bonus_used: bonusUsed,
+          extra: order.extra,
+          log_timestamp: order.log_timestamp,
+          is_canceled: order.is_canceled,
+          current_status: currentStatus ? {
+            status: currentStatus.status,
+            status_description: getStatusDescription(currentStatus.status),
+            is_canceled: currentStatus.isCanceled,
+            log_timestamp: currentStatus.log_timestamp
           } : null,
-          status: status ? {
-            status: status.status,
-            isCanceled: status.isCanceled,
-            log_timestamp: status.log_timestamp
-          } : null,
-          cost: cost ? {
-            cost: Number(cost.cost),
-            service_fee: Number(cost.service_fee),
-            delivery: Number(cost.delivery)
-          } : null,
-          items_count: itemsCount
+          delivery_address: deliveryAddress,
+          items: itemsWithDetails,
+          cost_summary: {
+            items_total: itemsTotal,
+            delivery_price: deliveryPrice,
+            bonus_used: bonusUsed,
+            total_sum: totalSum
+          }
         });
       }
 
-      const totalPages = Math.ceil(total / limit);
+      const totalPages = Math.ceil(ordersWithDetails.length / limit);
 
       res.json({
         success: true,
         data: {
           orders: ordersWithDetails,
           pagination: {
-            current_page: page,
-            per_page: limit,
-            total,
-            total_pages: totalPages
+            page: page,
+            limit: limit,
+            total: status ? ordersWithDetails.length : total,
+            total_pages: Math.ceil((status ? ordersWithDetails.length : total) / limit)
+          },
+          filters_applied: {
+            status: status || null,
+            business_id: business_id || null,
+            delivery_type: delivery_type || null
           }
         },
-        message: `Найдено ${total} заказов`
+        message: `Найдено ${ordersWithDetails.length} заказов`
       });
 
     } catch (error: any) {
@@ -2512,12 +3482,12 @@ export class OrderController {
 
       // Отправляем уведомление пользователю о смене статуса заказа
       try {
-        await NotificationController.sendOrderStatusNotification({
-          order_id: orderId,
-          order_uuid: order.order_uuid || '',
-          status: status,
-          business_name: business?.name || 'Неизвестное заведение'
-        });
+        // await NotificationController.sendOrderStatusNotification({
+        //   order_id: orderId,
+        //   order_uuid: order.order_uuid || '',
+        //   status: status,
+        //   business_name: business?.name || 'Неизвестное заведение'
+        // });
         console.log(`Уведомление о смене статуса заказа ${orderId} отправлено пользователю ${order.user_id}`);
       } catch (notificationError) {
         console.error('Ошибка отправки уведомления:', notificationError);

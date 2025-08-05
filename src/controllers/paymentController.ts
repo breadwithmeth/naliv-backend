@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createError } from '../middleware/errorHandler';
+import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
 
@@ -140,7 +141,7 @@ export class PaymentController {
   }
 
   /**
-   * Генерация уникального invoiceId для сохранения карт (только цифры)
+   * Генерация уникального invoiceId для сохранения карт
    */
   private static generateCardInvoiceId(userId: number, isRefresh: boolean = false): string {
     // Используем полный timestamp с секундами для максимальной уникальности
@@ -152,9 +153,12 @@ export class PaymentController {
     const randomPart = Math.floor(Math.random() * 100).toString().padStart(2, '0'); // 2 случайные цифры
     const refreshFlag = isRefresh ? '1' : '0'; // 1 цифра для флага обновления
     
-    // Формат: timestamp(10) + milliseconds(3) + user(3) + random(2) + refresh(1) = 19 цифр
-    // Пример: 1753625477259025 (19 цифр)
-    return `${timestamp}${milliseconds}${userPart}${randomPart}${refreshFlag}`;
+    // Формат: CARD + timestamp(10) + milliseconds(3) + user(3) + random(2) + refresh(1) = 24 символа
+    const invoiceId = `0000${timestamp}${milliseconds}${userPart}${randomPart}${refreshFlag}`;
+    
+    // Ограничиваем до 20 символов для совместимости с Halyk Bank, но сохраняем секунды
+    // Берем CARD + timestamp(10) + user(3) + random(2) + refresh(1) = 20 символов
+    return `0000${timestamp}${userPart}${randomPart}${refreshFlag}`;
   }
 
   /**
@@ -201,10 +205,8 @@ export class PaymentController {
     }
 
     // Если не удалось сгенерировать уникальный ID за максимальное количество попыток
-    // Используем timestamp + случайные цифры как fallback
-    const fallbackTimestamp = Math.floor(Date.now() / 1000);
-    const fallbackRandom = Math.floor(Math.random() * 999999).toString().padStart(6, '0');
-    const fallbackId = `${fallbackTimestamp}${fallbackRandom}`;
+    // Используем более длинный UUID как fallback
+    const fallbackId = `0000${Date.now()}${Math.random().toString(36).substring(2)}`.slice(0, 20);
     console.warn(`Использован fallback invoiceId: ${fallbackId} после ${maxAttempts} попыток`);
     return fallbackId;
   }
@@ -386,6 +388,718 @@ export class PaymentController {
     } catch (error: any) {
       console.error('Ошибка обновления инициализации сохранения карты:', error);
       next(createError(500, `Ошибка обновления: ${error.message}`));
+    }
+  }
+
+  /**
+   * Генерация ссылки для добавления карты
+   * POST /api/payments/generate-add-card-link
+   */
+  static async generateAddCardLink(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const userId = req.user?.user_id;
+
+      if (!userId) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      // Генерируем JWT токен для пользователя
+      const userToken = PaymentController.generateUserToken(userId);
+
+      // Формируем ссылку
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const addCardLink = `${baseUrl}/api/payments/add-card?token=${userToken}`;
+
+      console.log('Сгенерирована ссылка для добавления карты:', {
+        userId,
+        linkGenerated: new Date().toISOString(),
+        tokenExpires: '24h'
+      });
+
+      res.json({
+        success: true,
+        data: {
+          addCardLink,
+          token: userToken,
+          expiresIn: '24h',
+          userId,
+          instructions: {
+            ru: 'Откройте ссылку для добавления банковской карты',
+            en: 'Open the link to add a bank card'
+          }
+        },
+        message: 'Ссылка для добавления карты сгенерирована'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка генерации ссылки для добавления карты:', error);
+      next(createError(500, `Ошибка: ${error.message}`));
+    }
+  }
+
+  /**
+   * Проверка JWT токена
+   */
+  static verifyToken(token: string): any {
+    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    return jwt.verify(token, secret);
+  }
+
+  /**
+   * Генерация JWT токена для пользователя
+   */
+  static generateUserToken(userId: number): string {
+    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    return jwt.sign({ user_id: userId }, secret, { expiresIn: '24h' });
+  }
+
+  /**
+   * Эндпоинт для добавления новой карты через ссылку (GET)
+   * GET /api/payments/add-card?token={jwt_token}
+   */
+  static async addCardByLink(req: Request, res: Response, next: NextFunction) {
+    try {
+      // Отключаем CSP для этого маршрута, чтобы разрешить Halyk Bank скрипты
+      res.setHeader('Content-Security-Policy', 
+        "default-src 'self'; " +
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://epay.homebank.kz https://api.homebank.kz https://secure.homebank.kz; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data: https: http:; " +
+        "connect-src 'self' https://epay.homebank.kz https://api.homebank.kz https://secure.homebank.kz; " +
+        "frame-src 'self' https://epay.homebank.kz https://api.homebank.kz https://secure.homebank.kz; " +
+        "form-action 'self' https://epay.homebank.kz https://api.homebank.kz;"
+      );
+
+      const { token } = req.query;
+
+      if (!token) {
+        return res.status(400).send(`
+          <!DOCTYPE html>
+          <html lang="ru">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Ошибка авторизации</title>
+              <style>
+                  body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                  .error { color: #dc3545; }
+              </style>
+          </head>
+          <body>
+              <h1 class="error">Ошибка авторизации</h1>
+              <p>Не указан токен авторизации в ссылке</p>
+          </body>
+          </html>
+        `);
+      }
+
+      // Проверяем токен
+      let decodedToken;
+      try {
+        decodedToken = PaymentController.verifyToken(token as string);
+      } catch (error) {
+        return res.status(401).send(`
+          <!DOCTYPE html>
+          <html lang="ru">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Недействительный токен</title>
+              <style>
+                  body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                  .error { color: #dc3545; }
+              </style>
+          </head>
+          <body>
+              <h1 class="error">Недействительный токен</h1>
+              <p>Токен авторизации недействителен или истек</p>
+          </body>
+          </html>
+        `);
+      }
+
+      const userId = decodedToken.user_id;
+
+      // Генерируем уникальный invoiceId
+      const invoiceId = await PaymentController.generateUniqueCardInvoiceId(userId, false);
+
+      console.log('Добавление карты через ссылку:', {
+        userId,
+        invoiceId,
+        timestamp: new Date().toISOString()
+      });
+
+      try {
+        // Получаем токен от Halyk Bank для регистрации карты
+        const authToken = await PaymentController.getHalykToken('0', invoiceId, 'USD');
+
+        // Настройки для Halyk Bank
+        const jsLibraryUrl = 'https://epay.homebank.kz/payform/payment-api.js';
+        const terminalId = 'bb4dec49-6e30-41d0-b16b-8ba1831a854b';
+
+        // Формируем URLs для обработки результатов
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        const successUrl = `${baseUrl}/api/payments/add-card/success`;
+        const failureUrl = `${baseUrl}/api/payments/add-card/failure`;
+        const postLinkUrl = `${baseUrl}/api/payments/save-card/postlink`;
+
+        // HTML страница с формой добавления карты
+        const htmlResponse = `<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Добавление банковской карты</title>
+    <script src="${jsLibraryUrl}"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            max-width: 500px;
+            width: 100%;
+            text-align: center;
+        }
+        .card-icon {
+            font-size: 64px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 16px;
+            line-height: 1.5;
+        }
+        .info-box {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            text-align: left;
+        }
+        .info-box h3 {
+            margin: 0 0 10px 0;
+            color: #495057;
+            font-size: 16px;
+        }
+        .info-box ul {
+            margin: 0;
+            padding-left: 20px;
+            color: #6c757d;
+        }
+        .info-box li {
+            margin-bottom: 5px;
+        }
+        .add-button {
+            background: linear-gradient(45deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin: 20px 0;
+            width: 100%;
+            max-width: 300px;
+        }
+        .add-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+        .add-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .status {
+            margin: 20px 0;
+            padding: 12px;
+            border-radius: 8px;
+            font-weight: 500;
+        }
+        .status.loading {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+        .status.success {
+            background: #e8f5e8;
+            color: #2e7d32;
+        }
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .status.hidden {
+            display: none;
+        }
+        .security-note {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+            text-align: left;
+        }
+        .security-note strong {
+            color: #856404;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card-icon">💳</div>
+        <h1>Добавление банковской карты</h1>
+        <p class="subtitle">Добавьте вашу банковскую карту для быстрой оплаты заказов</p>
+        
+        <div class="info-box">
+            <h3>ℹ️ Информация о процессе:</h3>
+            <ul>
+                <li>Для добавления карты будет произведена верификация на сумму 0 ₸</li>
+                <li>Деньги не списываются с вашей карты</li>
+                <li>Данные карты надежно защищены и шифруются</li>
+                <li>Вы сможете удалить карту в любое время</li>
+            </ul>
+        </div>
+
+        <button class="add-button" onclick="startCardAddition()" id="addButton">
+            🔒 Добавить карту безопасно
+        </button>
+
+        <div class="status hidden" id="status"></div>
+
+        <div class="security-note">
+            <strong>🔐 Безопасность:</strong> Ваши данные защищены современным шифрованием. 
+            Мы не храним полные номера карт и используем только токены банка.
+        </div>
+    </div>
+
+    <script>
+        let currentInvoiceId = '${invoiceId}';
+        
+        // Настройка callback'ов для Halyk Bank
+        function setupHalykCallbacks() {
+            window.halykPaymentSuccess = function(result) {
+                console.log('Карта успешно добавлена:', result);
+                showStatus('✅ Карта успешно добавлена!', 'success');
+                
+                setTimeout(() => {
+                    showStatus('🔄 Перенаправление...', 'loading');
+                    window.location.href = '${successUrl}?invoiceId=' + currentInvoiceId;
+                }, 2000);
+            };
+
+            window.halykPaymentError = function(error) {
+                console.error('Ошибка добавления карты:', error);
+                showStatus('❌ Ошибка: ' + (error.message || 'Неизвестная ошибка'), 'error');
+                document.getElementById('addButton').disabled = false;
+            };
+
+            window.halykPaymentCancel = function() {
+                console.log('Добавление карты отменено');
+                showStatus('❌ Добавление карты отменено', 'error');
+                document.getElementById('addButton').disabled = false;
+            };
+
+            window.halykPaymentTimeout = function() {
+                console.log('Время добавления карты истекло');
+                showStatus('⏰ Время сеанса истекло. Попробуйте еще раз.', 'error');
+                document.getElementById('addButton').disabled = false;
+            };
+        }
+
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = 'status ' + type;
+        }
+
+        function startCardAddition() {
+            const button = document.getElementById('addButton');
+            button.disabled = true;
+            
+            showStatus('🔄 Инициализация добавления карты...', 'loading');
+            
+            try {
+                setupHalykCallbacks();
+                
+                // Создаем объект для добавления карты
+                const createPaymentObject = function(auth, invoiceId) {
+                    const paymentObject = {
+                        invoiceId: invoiceId,
+                        backLink: "${successUrl}",
+                        failureBackLink: "${failureUrl}",
+                        postLink: "${postLinkUrl}",
+                        language: "rus",
+                        description: "Добавление банковской карты",
+                        accountId: "${userId}",
+                        terminal: "${terminalId}",
+                        amount: 0,
+                        currency: "USD",
+                        cardSave: true,
+                        paymentType: "cardVerification"
+                    };
+                    paymentObject.auth = auth;
+                    return paymentObject;
+                };
+
+                showStatus('🔓 Открытие формы банка...', 'loading');
+                
+                // Запускаем процесс добавления карты через Halyk Bank
+                halyk.pay(createPaymentObject(${JSON.stringify(authToken)}, "${invoiceId}"));
+                
+            } catch (error) {
+                console.error('Ошибка инициализации:', error);
+                showStatus('❌ Ошибка инициализации: ' + error.message, 'error');
+                button.disabled = false;
+            }
+        }
+
+        // Автоматический запуск при загрузке страницы (опционально)
+        // window.onload = startCardAddition;
+    </script>
+</body>
+</html>`;
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        return res.send(htmlResponse);
+
+      } catch (tokenError: any) {
+        console.error('Ошибка при работе с Halyk API:', tokenError);
+        return res.status(500).send(`
+          <!DOCTYPE html>
+          <html lang="ru">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Ошибка платежной системы</title>
+              <style>
+                  body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                  .error { color: #dc3545; }
+              </style>
+          </head>
+          <body>
+              <h1 class="error">Ошибка платежной системы</h1>
+              <p>Не удалось подключиться к банку: ${tokenError.message}</p>
+          </body>
+          </html>
+        `);
+      }
+
+    } catch (error: any) {
+      console.error('Ошибка при добавлении карты через ссылку:', error);
+      return res.status(500).send(`
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Ошибка сервера</title>
+            <style>
+                body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+                .error { color: #dc3545; }
+            </style>
+        </head>
+        <body>
+            <h1 class="error">Ошибка сервера</h1>
+            <p>Произошла внутренняя ошибка: ${error.message}</p>
+        </body>
+        </html>
+      `);
+    }
+  }
+
+  /**
+   * Страница успешного добавления карты
+   * GET /api/payments/add-card/success
+   */
+  static async addCardSuccess(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { invoiceId } = req.query;
+
+      const htmlResponse = `
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Карта успешно добавлена</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    margin: 0;
+                    padding: 20px;
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .container {
+                    background: white;
+                    border-radius: 16px;
+                    padding: 40px;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+                    max-width: 500px;
+                    width: 100%;
+                    text-align: center;
+                }
+                .success-icon {
+                    font-size: 80px;
+                    color: #28a745;
+                    margin-bottom: 20px;
+                }
+                h1 {
+                    color: #28a745;
+                    margin-bottom: 10px;
+                    font-size: 28px;
+                }
+                .subtitle {
+                    color: #666;
+                    margin-bottom: 30px;
+                    font-size: 16px;
+                    line-height: 1.5;
+                }
+                .info-box {
+                    background: #d4edda;
+                    border: 1px solid #c3e6cb;
+                    border-radius: 12px;
+                    padding: 20px;
+                    margin: 20px 0;
+                    text-align: left;
+                }
+                .close-button {
+                    background: #28a745;
+                    color: white;
+                    border: none;
+                    padding: 16px 32px;
+                    border-radius: 12px;
+                    font-size: 18px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: background-color 0.2s;
+                    margin: 20px 0;
+                }
+                .close-button:hover {
+                    background: #218838;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="success-icon">✅</div>
+                <h1>Карта успешно добавлена!</h1>
+                <p class="subtitle">Ваша банковская карта была безопасно добавлена в систему</p>
+                
+                <div class="info-box">
+                    <h3>✨ Теперь вы можете:</h3>
+                    <ul>
+                        <li>Быстро оплачивать заказы одним кликом</li>
+                        <li>Не вводить данные карты каждый раз</li>
+                        <li>Управлять картами в личном кабинете</li>
+                    </ul>
+                </div>
+
+                ${invoiceId ? `<p><small>ID операции: ${invoiceId}</small></p>` : ''}
+
+                <button class="close-button" onclick="window.close()">
+                    Закрыть окно
+                </button>
+            </div>
+
+            <script>
+                // Уведомляем родительское окно о успешном добавлении
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'CARD_ADD_SUCCESS',
+                        invoiceId: '${invoiceId || ''}',
+                        timestamp: Date.now()
+                    }, window.location.origin);
+                }
+
+                // Автоматическое закрытие через 10 секунд
+                setTimeout(() => {
+                    window.close();
+                }, 10000);
+            </script>
+        </body>
+        </html>
+      `;
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(htmlResponse);
+
+    } catch (error: any) {
+      console.error('Ошибка отображения страницы успеха:', error);
+      next(createError(500, `Ошибка: ${error.message}`));
+    }
+  }
+
+  /**
+   * Страница ошибки добавления карты
+   * GET /api/payments/add-card/failure
+   */
+  static async addCardFailure(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { error, message, invoiceId } = req.query;
+
+      const htmlResponse = `
+        <!DOCTYPE html>
+        <html lang="ru">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Ошибка добавления карты</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+                    margin: 0;
+                    padding: 20px;
+                    min-height: 100vh;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                }
+                .container {
+                    background: white;
+                    border-radius: 16px;
+                    padding: 40px;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+                    max-width: 500px;
+                    width: 100%;
+                    text-align: center;
+                }
+                .error-icon {
+                    font-size: 80px;
+                    color: #dc3545;
+                    margin-bottom: 20px;
+                }
+                h1 {
+                    color: #dc3545;
+                    margin-bottom: 10px;
+                    font-size: 28px;
+                }
+                .subtitle {
+                    color: #666;
+                    margin-bottom: 30px;
+                    font-size: 16px;
+                    line-height: 1.5;
+                }
+                .error-box {
+                    background: #f8d7da;
+                    border: 1px solid #f5c6cb;
+                    border-radius: 12px;
+                    padding: 20px;
+                    margin: 20px 0;
+                    text-align: left;
+                    color: #721c24;
+                }
+                .retry-button {
+                    background: #dc3545;
+                    color: white;
+                    border: none;
+                    padding: 16px 32px;
+                    border-radius: 12px;
+                    font-size: 18px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: background-color 0.2s;
+                    margin: 10px;
+                }
+                .retry-button:hover {
+                    background: #c82333;
+                }
+                .close-button {
+                    background: #6c757d;
+                    color: white;
+                    border: none;
+                    padding: 16px 32px;
+                    border-radius: 12px;
+                    font-size: 18px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: background-color 0.2s;
+                    margin: 10px;
+                }
+                .close-button:hover {
+                    background: #5a6268;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="error-icon">❌</div>
+                <h1>Ошибка добавления карты</h1>
+                <p class="subtitle">К сожалению, не удалось добавить вашу карту</p>
+                
+                <div class="error-box">
+                    <h3>⚠️ Причина ошибки:</h3>
+                    <p>${message || error || 'Неизвестная ошибка'}</p>
+                    
+                    <h4>💡 Возможные решения:</h4>
+                    <ul>
+                        <li>Проверьте правильность данных карты</li>
+                        <li>Убедитесь, что карта активна и не заблокирована</li>
+                        <li>Попробуйте добавить карту еще раз</li>
+                        <li>Обратитесь в службу поддержки, если проблема повторяется</li>
+                    </ul>
+                </div>
+
+                ${invoiceId ? `<p><small>ID операции: ${invoiceId}</small></p>` : ''}
+
+                <button class="retry-button" onclick="retryAddCard()">
+                    🔄 Попробовать снова
+                </button>
+                <button class="close-button" onclick="window.close()">
+                    Закрыть окно
+                </button>
+            </div>
+
+            <script>
+                // Уведомляем родительское окно об ошибке
+                if (window.opener) {
+                    window.opener.postMessage({
+                        type: 'CARD_ADD_ERROR',
+                        error: '${error || ''}',
+                        message: '${message || ''}',
+                        invoiceId: '${invoiceId || ''}',
+                        timestamp: Date.now()
+                    }, window.location.origin);
+                }
+
+                function retryAddCard() {
+                    // Возвращаемся на страницу добавления карты
+                    window.history.back();
+                }
+            </script>
+        </body>
+        </html>
+      `;
+
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(htmlResponse);
+
+    } catch (error: any) {
+      console.error('Ошибка отображения страницы ошибки:', error);
+      next(createError(500, `Ошибка: ${error.message}`));
     }
   }
 
@@ -765,9 +1479,9 @@ export class PaymentController {
         delivery_date,
         payment_method = 'card', // 'card' или 'saved_card'
         saved_card_id, // ID сохраненной карты (если payment_method = 'saved_card')
-        backLink = "http://localhost:3000/api/payments/success",
-        failureBackLink = "http://localhost:3000/api/payments/failure",
-        postLink = "http://localhost:3000/api/payments/webhook"
+        backLink = "https://chorenn.naliv.kz/success",
+        failureBackLink = "https://chorenn.naliv.kz/failure",
+        postLink = "https://chorenn.naliv.kz/api/payment.php"
       } = req.body;
 
       const userId = req.user.user_id;
@@ -929,8 +1643,8 @@ export class PaymentController {
   }
 
   /**
-   * Оплата заказа сохраненной картой
-   * POST /api/payments/pay-with-saved-card
+   * Оплата заказа по коду карты Halyk
+   * POST /api/payments/pay-with-halyk-card
    */
   static async payWithSavedCard(req: AuthRequest, res: Response, next: NextFunction) {
     try {
@@ -941,17 +1655,17 @@ export class PaymentController {
 
       const {
         order_id,
-        saved_card_id,
-        backLink = "http://localhost:3000/api/payments/success",
-        failureBackLink = "http://localhost:3000/api/payments/failure",
-        postLink = "http://localhost:3000/api/payments/webhook"
+        halyk_card_id,
+        backLink = "https://chorenn.naliv.kz/success",
+        failureBackLink = "https://chorenn.naliv.kz/failure",
+        postLink = "https://chorenn.naliv.kz/api/payment.php"
       } = req.body;
 
       const userId = req.user.user_id;
 
       // Валидация обязательных полей
-      if (!order_id || !saved_card_id) {
-        return next(createError(400, 'Не указаны обязательные поля: order_id, saved_card_id'));
+      if (!order_id || !halyk_card_id) {
+        return next(createError(400, 'Не указаны обязательные поля: order_id, halyk_card_id'));
       }
 
       // Проверяем существование заказа и права доступа
@@ -977,18 +1691,6 @@ export class PaymentController {
         return next(createError(400, 'Заказ уже оплачен'));
       }
 
-      // Проверяем существование сохраненной карты и права доступа
-      const savedCard = await prisma.halyk_saved_cards.findFirst({
-        where: {
-          card_id: saved_card_id,
-          user_id: userId
-        }
-      });
-
-      if (!savedCard) {
-        return next(createError(404, 'Сохраненная карта не найдена или не принадлежит пользователю'));
-      }
-
       // Получаем стоимость заказа
       const orderCost = await prisma.orders_cost.findFirst({
         where: { order_id: order_id }
@@ -1003,14 +1705,12 @@ export class PaymentController {
       // Генерируем уникальный invoice ID для платежа
       const paymentInvoiceId = await PaymentController.generateUniqueCardInvoiceId(userId, false);
 
-      console.log('Оплата заказа сохраненной картой:', {
+      console.log('Оплата заказа по коду карты Halyk:', {
         order_id: order.order_id,
         order_uuid: order.order_uuid,
         payment_invoice_id: paymentInvoiceId,
         total_amount: totalAmount,
-        saved_card_id: saved_card_id,
-        card_mask: savedCard.card_mask,
-        halyk_card_id: savedCard.halyk_card_id,
+        halyk_card_id: halyk_card_id,
         timestamp: new Date().toISOString()
       });
 
@@ -1025,10 +1725,8 @@ export class PaymentController {
       const currentExtra = order.extra ? JSON.parse(order.extra) : {};
       currentExtra.payment_info = {
         payment_invoice_id: paymentInvoiceId,
-        payment_method: 'saved_card',
-        saved_card_id: saved_card_id,
-        card_mask: savedCard.card_mask,
-        halyk_card_id: savedCard.halyk_card_id,
+        payment_method: 'halyk_card',
+        halyk_card_id: halyk_card_id,
         payment_start_time: new Date().toISOString()
       };
 
@@ -1095,8 +1793,8 @@ export class PaymentController {
         
         <div class="card-info">
             <h4>Карта для оплаты:</h4>
-            <p><strong>Номер карты:</strong> **** **** **** ${savedCard.card_mask.slice(-4)}</p>
-            <p><strong>Тип платежа:</strong> Оплата сохраненной картой</p>
+            <p><strong>ID карты Halyk:</strong> ${halyk_card_id}</p>
+            <p><strong>Тип платежа:</strong> Оплата по коду карты Halyk</p>
         </div>
         
         <div class="status" id="status">Инициализация платежа...</div>
@@ -1126,12 +1824,12 @@ export class PaymentController {
     // Обновляем статус
     document.getElementById('status').innerHTML = 'Перенаправление на платежную систему...';
 
-    // Инициализируем платеж с сохраненной картой
+    // Инициализируем платеж с картой Halyk
     halyk.pay(createPaymentObject(
         ${JSON.stringify(authToken)}, 
         "${paymentInvoiceId}", 
         "${totalAmount}",
-        "${savedCard.halyk_card_id}"
+        "${halyk_card_id}"
     ));
 </script>
 </html>`;
@@ -1737,9 +2435,9 @@ export class PaymentController {
         invoiceId: invoiceId,
         cardId: savedCard.halyk_card_id,
         description: `Оплата заказа №${order.order_id} в ${business?.name || 'Naliv.kz'}`,
-        backLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-success?order_id=${order.order_id}&invoice_id=${invoiceId}`,
-        failureBackLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/payment-failure?order_id=${order.order_id}&invoice_id=${invoiceId}`,
-        postLink: `${process.env.BACKEND_URL || 'http://localhost:3000'}/api/payments/payment-webhook`,
+        backLink: `${process.env.FRONTEND_URL || 'https://chorenn.naliv.kz'}/payment-success?order_id=${order.order_id}&invoice_id=${invoiceId}`,
+        failureBackLink: `${process.env.FRONTEND_URL || 'https://chorenn.naliv.kz'}/payment-failure?order_id=${order.order_id}&invoice_id=${invoiceId}`,
+        postLink: `${process.env.BACKEND_URL || 'https://chorenn.naliv.kz'}/api/payment.php`,
         email: '',
         phone: ''
       };
@@ -1858,6 +2556,262 @@ export class PaymentController {
     } catch (error: any) {
       console.error('Ошибка получения статуса оплаты:', error);
       next(createError(500, `Ошибка получения статуса: ${error.message}`));
+    }
+  }
+
+  /**
+   * Получить список сохраненных карт из Halyk Bank API
+   * GET /api/payments/saved-cards/:accountId
+   */
+  static async getSavedCardsFromHalyk(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Необходима авторизация'));
+      }
+
+      const userId = req.user.user_id;
+      const accountId = req.params.accountId || userId.toString();
+
+      console.log('Получение списка карт из Halyk Bank API:', {
+        userId,
+        accountId,
+        timestamp: new Date().toISOString()
+      });
+
+      try {
+        // Получаем токен для доступа к API Halyk Bank
+        const authToken = await PaymentController.getHalykToken('0', undefined, 'KZT');
+        
+        // URL для получения списка карт (согласно документации)
+        const apiUrl = `https://epay-api.homebank.kz/cards/${accountId}`;
+        
+        // Запрос к API Halyk Bank
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${authToken.access_token}`,
+            'Content-Type': 'application/json'
+          }
+        });
+
+        console.log('Ответ Halyk Bank API:', {
+          status: response.status,
+          statusText: response.statusText,
+          url: apiUrl,
+          timestamp: new Date().toISOString()
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Ошибка API Halyk Bank:', {
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText
+          });
+          
+          // Если карты не найдены (код 1373)
+          if (response.status === 200) {
+            try {
+              const errorData = JSON.parse(errorText);
+              if (errorData.code === 1373) {
+                return res.json({
+                  success: true,
+                  data: {
+                    cards: [],
+                    total: 0,
+                    source: 'halyk_api'
+                  },
+                  message: 'Сохраненные карты не найдены'
+                });
+              }
+            } catch (parseError) {
+              // Продолжаем с общей ошибкой
+            }
+          }
+          
+          throw new Error(`Ошибка API Halyk Bank: ${response.status} ${response.statusText} - ${errorText}`);
+        }
+
+        const cardsData = await response.json();
+        
+        console.log('Данные карт от Halyk Bank:', {
+          count: Array.isArray(cardsData) ? cardsData.length : 0,
+          timestamp: new Date().toISOString()
+        });
+
+        // Обрабатываем ответ
+        if (Array.isArray(cardsData)) {
+          // Форматируем карты согласно нашему API
+          const formattedCards = cardsData
+            .filter(card => card.PaymentAvailable !== false) // Фильтруем доступные для оплаты
+            .map(card => ({
+              halyk_id: card.ID,
+              transaction_id: card.TransactionId,
+              merchant_id: card.MerchantID,
+              card_hash: card.CardHash,
+              card_mask: card.CardMask,
+              payer_name: card.PayerName,
+              reference: card.Reference,
+              int_reference: card.IntReference,
+              token: card.Token,
+              terminal: card.Terminal,
+              created_date: card.CreatedDate,
+              payment_available: card.PaymentAvailable,
+              account_id: card.AccountID
+            }));
+
+          res.json({
+            success: true,
+            data: {
+              cards: formattedCards,
+              total: formattedCards.length,
+              source: 'halyk_api',
+              account_id: accountId
+            },
+            message: `Найдено ${formattedCards.length} сохраненных карт в Halyk Bank`
+          });
+
+        } else if ((cardsData as any).code === 1373) {
+          // Нет сохраненных карт
+          res.json({
+            success: true,
+            data: {
+              cards: [],
+              total: 0,
+              source: 'halyk_api'
+            },
+            message: 'Сохраненные карты не найдены'
+          });
+        } else {
+          throw new Error(`Неожиданный формат ответа: ${JSON.stringify(cardsData)}`);
+        }
+
+      } catch (apiError: any) {
+        console.error('Ошибка обращения к Halyk Bank API:', apiError);
+        return next(createError(500, `Ошибка получения карт из Halyk Bank: ${apiError.message}`));
+      }
+
+    } catch (error: any) {
+      console.error('Ошибка получения сохраненных карт из Halyk Bank:', error);
+      next(createError(500, `Ошибка: ${error.message}`));
+    }
+  }
+
+  /**
+   * Получить объединенный список сохраненных карт (локальная БД + Halyk Bank API)
+   * GET /api/payments/saved-cards-combined
+   */
+  static async getCombinedSavedCards(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Необходима авторизация'));
+      }
+
+      const userId = req.user.user_id;
+
+      console.log('Получение объединенного списка карт:', {
+        userId,
+        timestamp: new Date().toISOString()
+      });
+
+      try {
+        // Получаем карты из локальной БД
+        const localCards = await prisma.halyk_saved_cards.findMany({
+          where: { user_id: userId },
+          select: {
+            card_id: true,
+            card_mask: true,
+            halyk_card_id: true
+          },
+          orderBy: { card_id: 'desc' }
+        });
+
+        // Получаем карты из Halyk Bank API
+        let halykCards: any[] = [];
+        try {
+          const authToken = await PaymentController.getHalykToken('0', undefined, 'KZT');
+          const apiUrl = `https://epay-api.homebank.kz/cards/${userId}`;
+          
+          const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${authToken.access_token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (response.ok) {
+            const cardsData = await response.json();
+            if (Array.isArray(cardsData)) {
+              halykCards = cardsData.filter(card => card.PaymentAvailable !== false);
+            }
+          }
+        } catch (halykError) {
+          console.warn('Не удалось получить карты из Halyk Bank API:', halykError);
+          // Продолжаем с локальными картами
+        }
+
+        // Объединяем и деудуплицируем карты
+        const combinedCards = [];
+        const processedHalykIds = new Set();
+
+        // Добавляем карты из Halyk Bank API (приоритет)
+        for (const halykCard of halykCards) {
+          processedHalykIds.add(halykCard.ID);
+          
+          // Ищем соответствующую локальную карту
+          const localCard = localCards.find(lc => lc.halyk_card_id === halykCard.ID);
+          
+          combinedCards.push({
+            card_id: localCard?.card_id || null,
+            halyk_id: halykCard.ID,
+            card_mask: halykCard.CardMask,
+            payer_name: halykCard.PayerName,
+            created_date: halykCard.CreatedDate,
+            payment_available: halykCard.PaymentAvailable,
+            source: 'halyk_api',
+            local_record: !!localCard
+          });
+        }
+
+        // Добавляем локальные карты, которых нет в Halyk Bank
+        for (const localCard of localCards) {
+          if (!processedHalykIds.has(localCard.halyk_card_id)) {
+            combinedCards.push({
+              card_id: localCard.card_id,
+              halyk_id: localCard.halyk_card_id,
+              card_mask: localCard.card_mask,
+              payer_name: null,
+              created_date: null,
+              payment_available: null, // Неизвестно без проверки API
+              source: 'local_db',
+              local_record: true
+            });
+          }
+        }
+
+        res.json({
+          success: true,
+          data: {
+            cards: combinedCards,
+            total: combinedCards.length,
+            sources: {
+              halyk_api: halykCards.length,
+              local_db: localCards.length,
+              combined: combinedCards.length
+            }
+          },
+          message: `Найдено ${combinedCards.length} сохраненных карт (${halykCards.length} из API + ${localCards.length} локальных)`
+        });
+
+      } catch (error: any) {
+        console.error('Ошибка объединения карт:', error);
+        return next(createError(500, `Ошибка объединения данных: ${error.message}`));
+      }
+
+    } catch (error: any) {
+      console.error('Ошибка получения объединенного списка карт:', error);
+      next(createError(500, `Ошибка: ${error.message}`));
     }
   }
 }

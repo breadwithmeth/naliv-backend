@@ -5,73 +5,6 @@ import axios from 'axios';
 
 const prisma = new PrismaClient();
 
-// Кеш для расчетов доставки в памяти приложения для ускорения
-const deliveryCache = new Map<string, any>();
-const addressCache = new Map<string, any>(); // Дополнительный кеш для адресов
-const CACHE_TTL = 5 * 60 * 1000; // 5 минут
-const ADDRESS_CACHE_TTL = 2 * 60 * 1000; // 2 минуты для адресов
-
-// Счетчик активных запросов для мониторинга производительности
-let activeDeliveryRequests = 0;
-const MAX_CONCURRENT_DELIVERY_REQUESTS = 5;
-
-// Очистка устаревших записей кеша каждые 10 минут
-setInterval(() => {
-  const now = Date.now();
-  let cleanedCount = 0;
-  
-  // Очистка кеша доставки
-  for (const [key, value] of deliveryCache.entries()) {
-    if ((now - value.timestamp) > CACHE_TTL) {
-      deliveryCache.delete(key);
-      cleanedCount++;
-    }
-  }
-  
-  // Очистка кеша адресов
-  for (const [key, value] of addressCache.entries()) {
-    if ((now - value.timestamp) > ADDRESS_CACHE_TTL) {
-      addressCache.delete(key);
-      cleanedCount++;
-    }
-  }
-  
-  if (cleanedCount > 0) {
-    console.log(`🧹 Очищено ${cleanedCount} устаревших записей из кеша доставки`);
-  }
-}, 10 * 60 * 1000); // 10 минут
-
-interface AuthRequest extends Request {
-  user?: {
-    user_id: number;
-    login: string;
-  };
-}
-
-interface CreateAddressRequest {
-  lat: number;
-  lon: number;
-  address: string;
-  name: string;
-  apartment?: string;
-  entrance?: string;
-  floor?: string;
-  other?: string;
-  city_id?: number;
-}
-
-interface UpdateAddressRequest {
-  lat?: number;
-  lon?: number;
-  address?: string;
-  name?: string;
-  apartment?: string;
-  entrance?: string;
-  floor?: string;
-  other?: string;
-  city_id?: number;
-}
-
 export class AddressController {
   /**
    * Поиск адресов через Яндекс.Карты
@@ -89,77 +22,37 @@ export class AddressController {
 
       console.log('🌍 Пытаемся использовать Yandex API для поиска:', query);
 
-      // Сначала пробуем использовать Yandex API
+      // Поиск через Nominatim
       try {
-        const endpoint = 'https://geocode-maps.yandex.ru/1.x';
+        const endpoint = 'http://68.183.23.112:8080/search.php';
         const params = {
-          apikey: '7e1b6231-620b-4f24-87fa-c85027f630ab',
-          geocode: query,
-          format: 'json',
-          lang: 'ru_RU'
-         
+          q: query as string,
+          addressdetails: '1',
+          namedetails: '1',
+          format: 'geocodejson'
+
         };
-
         const url = `${endpoint}?${new URLSearchParams(params)}`;
-        console.log('📡 Отправляем запрос к Yandex API:', url);
+        console.log('📡 Отправляем запрос к Nominatim:', url);
 
-        const response = await axios.get(url, {
-          timeout: 1000 // 1 секунда таймаут для быстрого фейлбека
-        });
-
-        console.log('✅ Получен ответ от Yandex API:', response.status);
-
-        const geodata = response.data;
+        const response = await axios.get(url, { timeout: 2000, headers: { 'Accept-Language': 'ru' } });
+        console.log('✅ Получен ответ от Nominatim:', response.status);
+        console.log('📊 Данные от Nominatim:', response.data);
         
-        if (!geodata?.response?.GeoObjectCollection?.featureMember) {
-          throw new Error('Пустой ответ от API');
-        }
         
-        const items = geodata.response.GeoObjectCollection.featureMember;
-
-        const formattedItems = items.map((item: any) => {
-          const geoObject = item.GeoObject;
-          const point = geoObject.Point.pos.split(' ');
-          
-          return {
-            name: geoObject.metaDataProperty.GeocoderMetaData.Address.formatted,
-            point: {
-              lat: parseFloat(point[1]),
-              lon: parseFloat(point[0])
-            },
-            description: geoObject.description || '',
-            kind: geoObject.metaDataProperty.GeocoderMetaData.kind || 'house',
-            precision: geoObject.metaDataProperty.GeocoderMetaData.precision || 'exact'
-          };
-        });
-
-        // Проверяем релевантность результатов
-        const isRelevant = AddressController.checkResultsRelevance(query, formattedItems);
-        
-        if (!isRelevant) {
-          console.log('🔄 Результаты Yandex API не релевантны, используем локальные данные');
-          throw new Error('Результаты не релевантны запросу');
-        }
 
         res.json({
           success: true,
-          data: formattedItems,
-          message: 'Адреса найдены'
+          data: response.data,
         });
 
       } catch (apiError: any) {
-        console.warn('⚠️  Yandex API недоступен, используем локальную базу:', apiError.message);
-        
-        // Возвращаем моковые данные
-        const mockData = AddressController.getMockAddressData(query.toString().toLowerCase());
-        
-        console.log('� Ищем в моковых данных по запросу:', `"${query.toString().toLowerCase()}"`);
-        console.log('�📦 Возвращаем моковые данные:', mockData.length, 'элементов');
-        
+        console.warn('⚠️  Nominatim недоступен, используем локальную базу:', apiError.message);
+        const mockData = AddressController.getMockAddressData((query as string).toLowerCase());
         res.json({
           success: true,
-        //   data: mockData,
-        //   message: mockData.length > 0 ? 'Адреса найдены (локальная база)' : 'Адреса не найдены (локальная база)'
+          data: mockData,
+          message: mockData.length > 0 ? 'Адреса найдены (локальная база)' : 'Адреса не найдены (локальная база)'
         });
       }
 
@@ -318,6 +211,31 @@ export class AddressController {
 
     const relevanceRatio = relevantCount / results.length;
     return relevanceRatio >= 0.3; // Минимум 30% релевантных результатов
+  }
+
+  /**
+   * Получить все адреса пользователя
+   * GET /api/addresses
+   */
+  static async getUserAddresses(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = (req as any).user.user_id;
+
+      const addresses = await prisma.user_addreses.findMany({
+        where: { user_id: userId },
+        orderBy: { address_id: 'desc' }
+      });
+
+      res.json({
+        success: true,
+        data: addresses,
+        message: 'Адреса получены'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка получения адресов:', error);
+      next(createError(500, `Ошибка получения адресов: ${error.message}`));
+    }
   }
 
   /**
@@ -552,714 +470,38 @@ export class AddressController {
   }
 
   /**
-   * Получение всех адресов пользователя
-   * GET /api/addresses/user
+   * Обратный геокодинг по координатам
+   * GET /api/addresses/reverse?lat={lat}&lon={lon}
    */
-  static async getUserAddresses(req: AuthRequest, res: Response, next: NextFunction) {
+  static async reverseGeocode(req: Request, res: Response, next: NextFunction) {
     try {
-      if (!req.user) {
-        return next(createError(401, 'Требуется авторизация'));
+      const { lat, lon } = req.query;
+      if (!lat || !lon || isNaN(Number(lat)) || isNaN(Number(lon))) {
+        return next(createError(400, 'Параметры lat и lon обязателены и должны быть числами'));
       }
-
-      const addresses = await prisma.user_addreses.findMany({
-        where: {
-          user_id: req.user.user_id,
-          isDeleted: 0
-        },
-        orderBy: {
-          log_timestamp: 'desc'
-        }
-      });
-
-      res.json({
-        success: true,
-        data: {
-          addresses: addresses.map(address => ({
-            address_id: address.address_id,
-            lat: address.lat,
-            lon: address.lon,
-            address: address.address,
-            name: address.name,
-            apartment: address.apartment,
-            entrance: address.entrance,
-            floor: address.floor,
-            other: address.other,
-            city_id: address.city_id,
-            created_at: address.log_timestamp
-          }))
-        },
-        message: `Найдено ${addresses.length} адресов`
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка получения адресов:', error);
-      next(createError(500, `Ошибка получения адресов: ${error.message}`));
-    }
-  }
-
-  /**
-   * Получение конкретного адреса пользователя с опциональной проверкой доставки
-   * GET /api/addresses/user/:id?business_id=1
-   */
-  static async getUserAddressById(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) {
-        return next(createError(401, 'Требуется авторизация'));
-      }
-
-      const addressId = parseInt(req.params.id);
-      const businessId = req.query.business_id ? parseInt(req.query.business_id as string) : null;
-      
-      if (isNaN(addressId)) {
-        return next(createError(400, 'Неверный ID адреса'));
-      }
-
-      const address = await prisma.user_addreses.findFirst({
-        where: {
-          address_id: addressId,
-          user_id: req.user.user_id,
-          isDeleted: 0
-        }
-      });
-
-      if (!address) {
-        return next(createError(404, 'Адрес не найден или не принадлежит пользователю'));
-      }
-
-      let deliveryInfo = null;
-
-      // Если передан business_id, проверяем доставку
-      if (businessId && address.lat && address.lon) {
-        const cacheKey = `delivery_${businessId}_${address.lat}_${address.lon}_${address.address_id}`;
-        const cachedResult = deliveryCache.get(cacheKey);
-        
-        if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_TTL) {
-          deliveryInfo = cachedResult.data;
-        } else {
-          try {
-            const { DeliveryController } = await import('./deliveryController');
-            
-            const deliveryResult = await DeliveryController.calculateDeliveryZone({
-              lat: Number(address.lat),
-              lon: Number(address.lon),
-              business_id: businessId,
-              address_id: address.address_id
-            });
-
-            deliveryInfo = {
-              available: deliveryResult.in_zone,
-              price: deliveryResult.price,
-              delivery_type: deliveryResult.delivery_type,
-              message: deliveryResult.message,
-              distance: deliveryResult.current_distance
-            };
-
-            // Сохраняем в кеш
-            deliveryCache.set(cacheKey, {
-              data: deliveryInfo,
-              timestamp: Date.now()
-            });
-
-          } catch (deliveryError) {
-            console.error('Ошибка проверки доставки:', deliveryError);
-            deliveryInfo = {
-              available: false,
-              price: false,
-              message: 'Ошибка проверки доставки',
-              distance: null
-            };
-          }
-        }
-      }
-
-      const responseData: any = {
-        address: {
-          address_id: address.address_id,
-          lat: address.lat,
-          lon: address.lon,
-          address: address.address,
-          name: address.name,
-          apartment: address.apartment,
-          entrance: address.entrance,
-          floor: address.floor,
-          other: address.other,
-          city_id: address.city_id,
-          created_at: address.log_timestamp
-        }
+      const endpoint = 'http://68.183.23.112:8080/reverse.php';
+      const params = {
+        lat: lat as string,
+        lon: lon as string,
+        format: 'geocodejson',
+        addressdetails: '1',
+        namedetails: '1'
       };
-
-      if (deliveryInfo) {
-        responseData.address.delivery = deliveryInfo;
-        responseData.business_id = businessId;
-      }
-
-      res.json({
-        success: true,
-        data: responseData,
-        message: deliveryInfo ? 'Адрес найден с информацией о доставке' : 'Адрес найден'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка получения адреса:', error);
-      next(createError(500, `Ошибка получения адреса: ${error.message}`));
-    }
-  }
-
-  /**
-   * Получить выбранный адрес пользователя (последний выбранный)
-   * GET /api/addresses/user/selected?business_id=1
-   */
-  static async getSelectedAddress(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) {
-        return next(createError(401, 'Требуется авторизация'));
-      }
-
-      const businessId = req.query.business_id ? parseInt(req.query.business_id as string) : null;
-
-      // Получаем последний выбранный адрес
-      const selectedRecord = await prisma.selected_address.findFirst({
-        where: {
-          user_id: req.user.user_id
-        },
-        orderBy: {
-          log_timestamp: 'desc'
-        }
-      });
-
-      if (!selectedRecord) {
-        return next(createError(404, 'У пользователя нет выбранного адреса'));
-      }
-
-      // Получаем полную информацию об адресе
-      const address = await prisma.user_addreses.findFirst({
-        where: {
-          address_id: selectedRecord.address_id,
-          user_id: req.user.user_id,
-          isDeleted: 0
-        }
-      });
-
-      if (!address) {
-        return next(createError(404, 'Выбранный адрес не найден или был удален'));
-      }
-
-      let deliveryInfo = null;
-
-      // Если передан business_id, проверяем доставку
-      if (businessId && address.lat && address.lon) {
-        const cacheKey = `delivery_${businessId}_${address.lat}_${address.lon}_${address.address_id}`;
-        const cachedResult = deliveryCache.get(cacheKey);
-        
-        if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_TTL) {
-          deliveryInfo = cachedResult.data;
-        } else {
-          try {
-            const { DeliveryController } = await import('./deliveryController');
-            
-            const deliveryResult = await DeliveryController.calculateDeliveryZone({
-              lat: Number(address.lat),
-              lon: Number(address.lon),
-              business_id: businessId,
-              address_id: address.address_id
-            });
-
-            deliveryInfo = {
-              available: deliveryResult.in_zone,
-              price: deliveryResult.price,
-              delivery_type: deliveryResult.delivery_type,
-              message: deliveryResult.message,
-              distance: deliveryResult.current_distance
-            };
-
-            // Сохраняем в кеш
-            deliveryCache.set(cacheKey, {
-              data: deliveryInfo,
-              timestamp: Date.now()
-            });
-
-          } catch (deliveryError) {
-            console.error('Ошибка проверки доставки:', deliveryError);
-            deliveryInfo = {
-              available: false,
-              price: false,
-              message: 'Ошибка проверки доставки',
-              distance: null
-            };
-          }
-        }
-      }
-
-      const responseData: any = {
-        selected_address: {
-          address_id: address.address_id,
-          lat: address.lat,
-          lon: address.lon,
-          address: address.address,
-          name: address.name,
-          apartment: address.apartment,
-          entrance: address.entrance,
-          floor: address.floor,
-          other: address.other,
-          city_id: address.city_id,
-          created_at: address.log_timestamp,
-          selected_at: selectedRecord.log_timestamp
-        }
-      };
-
-      if (deliveryInfo) {
-        responseData.selected_address.delivery = deliveryInfo;
-        responseData.business_id = businessId;
-      }
-
-      res.json({
-        success: true,
-        data: responseData,
-        message: deliveryInfo ? 'Выбранный адрес найден с информацией о доставке' : 'Выбранный адрес найден'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка получения выбранного адреса:', error);
-      next(createError(500, `Ошибка получения выбранного адреса: ${error.message}`));
-    }
-  }
-
-  /**
-   * Установить выбранный адрес пользователя
-   * POST /api/addresses/user/select
-   * Body: { address_id: number }
-   */
-  static async selectAddress(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) {
-        return next(createError(401, 'Требуется авторизация'));
-      }
-
-      const { address_id } = req.body;
-
-      if (!address_id || isNaN(parseInt(address_id))) {
-        return next(createError(400, 'Не указан корректный address_id'));
-      }
-
-      const addressId = parseInt(address_id);
-
-      // Проверяем, что адрес существует и принадлежит пользователю
-      const address = await prisma.user_addreses.findFirst({
-        where: {
-          address_id: addressId,
-          user_id: req.user.user_id,
-          isDeleted: 0
-        }
-      });
-
-      if (!address) {
-        return next(createError(404, 'Адрес не найден или не принадлежит пользователю'));
-      }
-
-      // Создаем новую запись о выбранном адресе
-      const selectedAddress = await prisma.selected_address.create({
-        data: {
-          user_id: req.user.user_id,
-          address_id: addressId
-        }
-      });
-
-      res.json({
-        success: true,
-        data: {
-          selected_address_id: selectedAddress.relation_id,
-          address_id: addressId,
-          user_id: req.user.user_id,
-          selected_at: selectedAddress.log_timestamp
-        },
-        message: 'Адрес успешно выбран'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка выбора адреса:', error);
-      next(createError(500, `Ошибка выбора адреса: ${error.message}`));
-    }
-  }
-
-  /**
-   * Создание нового адреса
-   * POST /api/addresses/user
-   */
-  static async createUserAddress(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) {
-        return next(createError(401, 'Требуется авторизация'));
-      }
-
-      const {
-        lat,
-        lon,
-        address,
-        name,
-        apartment = '',
-        entrance = '',
-        floor = '',
-        other = '',
-        city_id
-      }: CreateAddressRequest = req.body;
-
-      // Валидация обязательных полей
-      if (!lat || !lon || !address || !name) {
-        return next(createError(400, 'Не указаны обязательные поля: lat, lon, address, name'));
-      }
-
-      // Валидация координат
-      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-        return next(createError(400, 'Некорректные координаты'));
-      }
-
-      // Проверяем количество адресов пользователя (лимит)
-      const existingAddresses = await prisma.user_addreses.count({
-        where: {
-          user_id: req.user.user_id,
-          isDeleted: 0
-        }
-      });
-
-      if (existingAddresses >= 10) {
-        return next(createError(400, 'Превышен лимит адресов (максимум 10)'));
-      }
-
-      const newAddress = await prisma.user_addreses.create({
-        data: {
-          user_id: req.user.user_id,
-          lat: lat,
-          lon: lon,
-          address: address.trim(),
-          name: name.trim(),
-          apartment: apartment.trim(),
-          entrance: entrance.trim(),
-          floor: floor.trim(),
-          other: other.trim(),
-          city_id: city_id || null,
-          log_timestamp: new Date()
-        }
-      });
-
-      res.status(201).json({
-        success: true,
-        data: {
-          address: {
-            address_id: newAddress.address_id,
-            lat: newAddress.lat,
-            lon: newAddress.lon,
-            address: newAddress.address,
-            name: newAddress.name,
-            apartment: newAddress.apartment,
-            entrance: newAddress.entrance,
-            floor: newAddress.floor,
-            other: newAddress.other,
-            city_id: newAddress.city_id,
-            created_at: newAddress.log_timestamp
-          }
-        },
-        message: 'Адрес успешно создан'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка создания адреса:', error);
-      next(createError(500, `Ошибка создания адреса: ${error.message}`));
-    }
-  }
-
-  /**
-   * Обновление адреса
-   * PUT /api/addresses/user/:id
-   */
-  static async updateUserAddress(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) {
-        return next(createError(401, 'Требуется авторизация'));
-      }
-
-      const addressId = parseInt(req.params.id);
-      if (isNaN(addressId)) {
-        return next(createError(400, 'Неверный ID адреса'));
-      }
-
-      const {
-        lat,
-        lon,
-        address,
-        name,
-        apartment,
-        entrance,
-        floor,
-        other,
-        city_id
-      }: UpdateAddressRequest = req.body;
-
-      // Проверяем существование адреса и права доступа
-      const existingAddress = await prisma.user_addreses.findFirst({
-        where: {
-          address_id: addressId,
-          user_id: req.user.user_id,
-          isDeleted: 0
-        }
-      });
-
-      if (!existingAddress) {
-        return next(createError(404, 'Адрес не найден'));
-      }
-
-      // Валидация координат (если переданы)
-      if ((lat !== undefined && (lat < -90 || lat > 90)) || 
-          (lon !== undefined && (lon < -180 || lon > 180))) {
-        return next(createError(400, 'Некорректные координаты'));
-      }
-
-      // Подготавливаем данные для обновления
-      const updateData: any = {};
-      if (lat !== undefined) updateData.lat = lat;
-      if (lon !== undefined) updateData.lon = lon;
-      if (address !== undefined) updateData.address = address.trim();
-      if (name !== undefined) updateData.name = name.trim();
-      if (apartment !== undefined) updateData.apartment = apartment.trim();
-      if (entrance !== undefined) updateData.entrance = entrance.trim();
-      if (floor !== undefined) updateData.floor = floor.trim();
-      if (other !== undefined) updateData.other = other.trim();
-      if (city_id !== undefined) updateData.city_id = city_id;
-
-      const updatedAddress = await prisma.user_addreses.update({
-        where: { address_id: addressId },
-        data: updateData
-      });
-
-      res.json({
-        success: true,
-        data: {
-          address: {
-            address_id: updatedAddress.address_id,
-            lat: updatedAddress.lat,
-            lon: updatedAddress.lon,
-            address: updatedAddress.address,
-            name: updatedAddress.name,
-            apartment: updatedAddress.apartment,
-            entrance: updatedAddress.entrance,
-            floor: updatedAddress.floor,
-            other: updatedAddress.other,
-            city_id: updatedAddress.city_id,
-            created_at: updatedAddress.log_timestamp
-          }
-        },
-        message: 'Адрес успешно обновлен'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка обновления адреса:', error);
-      next(createError(500, `Ошибка обновления адреса: ${error.message}`));
-    }
-  }
-
-  /**
-   * Удаление адреса (мягкое удаление)
-   * DELETE /api/addresses/user/:id
-   */
-  static async deleteUserAddress(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      if (!req.user) {
-        return next(createError(401, 'Требуется авторизация'));
-      }
-
-      const addressId = parseInt(req.params.id);
-      if (isNaN(addressId)) {
-        return next(createError(400, 'Неверный ID адреса'));
-      }
-
-      // Проверяем существование адреса и права доступа
-      const existingAddress = await prisma.user_addreses.findFirst({
-        where: {
-          address_id: addressId,
-          user_id: req.user.user_id,
-          isDeleted: 0
-        }
-      });
-
-      if (!existingAddress) {
-        return next(createError(404, 'Адрес не найден'));
-      }
-
-      // Мягкое удаление
-      await prisma.user_addreses.update({
-        where: { address_id: addressId },
-        data: { isDeleted: 1 }
-      });
-
-      res.json({
-        success: true,
-        data: { address_id: addressId },
-        message: 'Адрес успешно удален'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка удаления адреса:', error);
-      next(createError(500, `Ошибка удаления адреса: ${error.message}`));
-    }
-  }
-
-  /**
-   * Проверка возможности доставки по адресу
-   * POST /api/addresses/check-delivery
-   */
-  static async checkDeliveryAvailability(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      const { lat, lon, business_id } = req.body;
-
-      if (!lat || !lon || !business_id) {
-        return next(createError(400, 'Не указаны обязательные поля: lat, lon, business_id'));
-      }
-
-      // Валидация координат
-      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-        return next(createError(400, 'Некорректные координаты'));
-      }
-
-      // Импортируем DeliveryController для проверки зоны доставки
-      const { DeliveryController } = await import('./deliveryController');
+      const url = `${endpoint}?${new URLSearchParams(params)}`;
+      console.log('📡 Отправляем запрос к Nominatim reverse:', url);
+      const response = await axios.get(url, { timeout: 2000, headers: { 'Accept-Language': 'ru' } });
+      console.log('✅ Ответ Nominatim reverse:', response.status);
+      const data = response.data;
       
-      const deliveryResult = await DeliveryController.calculateDeliveryZone({
-        lat: Number(lat),
-        lon: Number(lon),
-        business_id: Number(business_id)
-      });
-
+      
       res.json({
         success: true,
-        data: {
-          delivery_available: deliveryResult.in_zone,
-          delivery_price: deliveryResult.price,
-          delivery_type: deliveryResult.delivery_type,
-          message: deliveryResult.message,
-          max_distance: deliveryResult.max_distance,
-          current_distance: deliveryResult.current_distance
-        },
-        message: deliveryResult.in_zone ? 'Доставка доступна' : 'Доставка недоступна'
+        data: data,
+        message: 'Адрес получен по координатам'
       });
-
     } catch (error: any) {
-      console.error('Ошибка проверки доставки:', error);
-      next(createError(500, `Ошибка проверки доставки: ${error.message}`));
-    }
-  }
-
-  /**
-   * Получение адресов с информацией о доставке
-   * GET /api/addresses/user/with-delivery?business_id=1
-   */
-  static async getUserAddressesWithDelivery(req: AuthRequest, res: Response, next: NextFunction) {
-    const startTime = Date.now();
-    try {
-      if (!req.user) {
-        return next(createError(401, 'Требуется авторизация'));
-      }
-
-      const businessId = req.query.business_id ? parseInt(req.query.business_id as string) : null;
-      const limit = req.query.limit ? Math.min(parseInt(req.query.limit as string), 50) : 20; // Максимум 50 адресов
-
-      console.log(`📍 Загрузка адресов пользователя ${req.user.user_id} с доставкой для бизнеса ${businessId}`);
-
-      const addresses = await prisma.user_addreses.findMany({
-        where: {
-          user_id: req.user.user_id,
-          isDeleted: 0
-        },
-        orderBy: {
-          log_timestamp: 'desc'
-        },
-        take: limit // Ограничиваем количество для производительности
-      });
-
-      // Используем параллельные запросы вместо последовательных для ускорения
-      const addressesWithDeliveryPromises = addresses.map(async (address) => {
-        let deliveryInfo = null;
-
-        if (businessId && address.lat && address.lon) {
-          // Создаем ключ для кеша
-          const cacheKey = `delivery_${businessId}_${address.lat}_${address.lon}_${address.address_id}`;
-          const cachedResult = deliveryCache.get(cacheKey);
-          
-          // Проверяем кеш
-          if (cachedResult && (Date.now() - cachedResult.timestamp) < CACHE_TTL) {
-            console.log(`🚀 Используем кеш для адреса ${address.address_id}`);
-            deliveryInfo = cachedResult.data;
-          } else {
-            try {
-              const { DeliveryController } = await import('./deliveryController');
-              
-              const deliveryResult = await DeliveryController.calculateDeliveryZone({
-                lat: Number(address.lat),
-                lon: Number(address.lon),
-                business_id: businessId,
-                address_id: address.address_id // Передаем address_id для кеширования
-              });
-
-              deliveryInfo = {
-                available: deliveryResult.in_zone,
-                price: deliveryResult.price,
-                delivery_type: deliveryResult.delivery_type,
-                message: deliveryResult.message,
-                distance: deliveryResult.current_distance
-              };
-
-              // Сохраняем в кеш
-              deliveryCache.set(cacheKey, {
-                data: deliveryInfo,
-                timestamp: Date.now()
-              });
-
-            } catch (deliveryError) {
-              console.error('Ошибка проверки доставки для адреса:', address.address_id, deliveryError);
-              deliveryInfo = {
-                available: false,
-                price: false,
-                message: 'Ошибка проверки доставки',
-                distance: null
-              };
-            }
-          }
-        }
-
-        return {
-          address_id: address.address_id,
-          lat: address.lat,
-          lon: address.lon,
-          address: address.address,
-          name: address.name,
-          apartment: address.apartment,
-          entrance: address.entrance,
-          floor: address.floor,
-          other: address.other,
-          city_id: address.city_id,
-          created_at: address.log_timestamp,
-          delivery: deliveryInfo
-        };
-      });
-
-      // Ожидаем завершения всех параллельных запросов
-      const addressesWithDelivery = await Promise.all(addressesWithDeliveryPromises);
-
-      const executionTime = Date.now() - startTime;
-      console.log(`⚡ Запрос адресов с доставкой выполнен за ${executionTime}мс`);
-
-      res.json({
-        success: true,
-        data: {
-          addresses: addressesWithDelivery,
-          business_id: businessId,
-          execution_time_ms: executionTime
-        },
-        message: `Найдено ${addresses.length} адресов`
-      });
-
-    } catch (error: any) {
-      const executionTime = Date.now() - startTime;
-      console.error(`❌ Ошибка получения адресов с информацией о доставке (${executionTime}мс):`, error);
-      next(createError(500, `Ошибка получения адресов: ${error.message}`));
+      console.error('Ошибка обратного геокодинга:', error);
+      next(createError(500, `Ошибка геокодирования: ${error.message}`));
     }
   }
 }

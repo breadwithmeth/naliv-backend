@@ -19,6 +19,9 @@ router.get('/:id/items', CategoryController.getItemsByCategory);
 // Query params: business_id (опционально, для проверки доступности акций)
 router.get('/items/:itemId', CategoryController.getItemById);
 
+// GET /api/categories/supercategories - Получить суперкатегории с вложенными категориями
+router.get('/supercategories', CategoryController.getSupercategories);
+
 // GET /api/categories/:id - Получить категорию по ID с подкатегориями
 // Query params: ?business_id=1 (опционально, для получения количества товаров)
 router.get('/:id', CategoryController.getCategoryById);

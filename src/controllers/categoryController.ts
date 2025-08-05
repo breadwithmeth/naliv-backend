@@ -529,7 +529,7 @@ export class CategoryController {
             description: item.description,
             price: item.price ? Number(item.price) : null,
             amount: item.amount ? Number(item.amount) : 0,
-            quantity: item.quantity ? Number(item.quantity) : 1,
+            quantity_step: item.quantity ? Number(item.quantity) : 1,
             unit: item.unit || 'шт',
             img: item.img,
             code: item.code,
@@ -711,7 +711,7 @@ export class CategoryController {
             description: item.description,
             price: item.price ? Number(item.price) : null,
             amount: item.amount ? Number(item.amount) : 0,
-            quantity: item.quantity ? Number(item.quantity) : 1,
+            quantity_step: item.quantity ? Number(item.quantity) : 1,
             unit: item.unit || 'шт',
             img: item.img,
             code: item.code,
@@ -729,6 +729,47 @@ export class CategoryController {
     } catch (error: any) {
       console.error('Ошибка получения товара:', error);
       next(createError(500, `Ошибка получения товара: ${error.message}`));
+    }
+  }
+
+  /**
+   * Получение суперкатегорий с вложенными категориями (только корневые)
+   * GET /api/categories/supercategories
+   */
+  static async getSupercategories(req: Request, res: Response, next: NextFunction) {
+    try {
+      // Сначала получаем все суперкатегории
+      const supers = await prisma.supercategories.findMany({
+        orderBy: { name: 'asc' }
+      });
+      // Для каждой суперкатегории получаем корневые категории и их подкатегории
+      const supercategories = await Promise.all(
+        supers.map(async sup => {
+          const rootCategories = await prisma.categories.findMany({
+            where: { supercategory_id: sup.supercategory_id, parent_category: 0, visible: 1 },
+            orderBy: { name: 'asc' }
+          });
+          const categoriesWithSubs = await Promise.all(
+            rootCategories.map(async root => {
+              const subcategories = await prisma.categories.findMany({
+                where: { parent_category: root.category_id, visible: 1 },
+                orderBy: { name: 'asc' }
+              });
+              return { ...root, subcategories };
+            })
+          );
+          return { ...sup, categories: categoriesWithSubs };
+        })
+      );
+
+      res.json({
+        success: true,
+        data: { supercategories },
+        message: 'Суперкатегории получены успешно'
+      });
+    } catch (error: any) {
+      console.error('Ошибка получения суперкатегорий:', error);
+      next(createError(500, `Ошибка получения суперкатегорий: ${error.message}`));
     }
   }
 }

@@ -23,8 +23,49 @@ class App {
   }
 
   private initializeMiddlewares(): void {
-    // Безопасность
-    this.app.use(helmet());
+    // Безопасность с настройками для Halyk Bank API
+    this.app.use(helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'self'"],
+          scriptSrc: [
+            "'self'",
+            "'unsafe-inline'", // Разрешаем inline скрипты для Halyk Bank
+            "'unsafe-eval'", // Разрешаем eval для динамических скриптов
+            "https://epay.homebank.kz", // Halyk Bank API
+            "https://api.homebank.kz", // Дополнительный домен Halyk Bank
+            "https://secure.homebank.kz" // Secure домен Halyk Bank
+          ],
+          styleSrc: [
+            "'self'",
+            "'unsafe-inline'" // Разрешаем inline стили
+          ],
+          imgSrc: [
+            "'self'",
+            "data:",
+            "https:", // Разрешаем загрузку изображений по HTTPS
+            "http:" // Разрешаем загрузку изображений по HTTP (для разработки)
+          ],
+          connectSrc: [
+            "'self'",
+            "https://epay.homebank.kz",
+            "https://api.homebank.kz",
+            "https://secure.homebank.kz"
+          ],
+          frameSrc: [
+            "'self'",
+            "https://epay.homebank.kz",
+            "https://api.homebank.kz",
+            "https://secure.homebank.kz"
+          ],
+          formAction: [
+            "'self'",
+            "https://epay.homebank.kz",
+            "https://api.homebank.kz"
+          ]
+        }
+      }
+    }));
     
     // CORS - разрешаем запросы из всех источников
     this.app.use(cors({
@@ -39,13 +80,9 @@ class App {
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true }));
     
-    // Расширенное логирование запросов с информацией об IP
+    // Логирование запросов
     this.app.use((req: Request, res: Response, next: NextFunction) => {
-      const ip = req.ip || req.connection.remoteAddress || 'unknown';
-      const userAgent = req.get('User-Agent') || 'unknown';
-      const timestamp = new Date().toISOString();
-      
-      console.log(`${timestamp} - ${req.method} ${req.path} | IP: ${ip} | UA: ${userAgent.substring(0, 50)}`);
+      console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
       next();
     });
   }

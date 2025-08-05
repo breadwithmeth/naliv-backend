@@ -21,6 +21,41 @@ router.get('/methods/:id', PaymentController.getPaymentMethodById);
 // ===== СОХРАНЕНИЕ КАРТ HALYK BANK =====
 
 /**
+ * @route POST /api/payments/generate-add-card-link
+ * @desc Генерация ссылки для добавления карты
+ * @access Private (требует JWT токен)
+ * @returns { success: boolean, data: { addCardLink, token, expiresIn, userId, instructions }, message: string }
+ */
+router.post('/generate-add-card-link', authenticateToken, PaymentController.generateAddCardLink);
+
+/**
+ * @route GET /api/payments/add-card
+ * @desc Добавление новой карты через ссылку
+ * @access Public (требует token в query параметре)
+ * @query { token: string (JWT токен пользователя) }
+ * @returns HTML страница для добавления карты
+ */
+router.get('/add-card', PaymentController.addCardByLink);
+
+/**
+ * @route GET /api/payments/add-card/success
+ * @desc Страница успешного добавления карты
+ * @access Public
+ * @query { invoiceId?: string }
+ * @returns HTML страница успеха
+ */
+router.get('/add-card/success', PaymentController.addCardSuccess);
+
+/**
+ * @route GET /api/payments/add-card/failure
+ * @desc Страница ошибки добавления карты
+ * @access Public
+ * @query { error?: string, message?: string, invoiceId?: string }
+ * @returns HTML страница ошибки
+ */
+router.get('/add-card/failure', PaymentController.addCardFailure);
+
+/**
  * @route POST /api/payments/save-card/init
  * @desc Инициализация сохранения карты через Halyk Bank
  * @access Private (требует JWT токен)
@@ -255,13 +290,13 @@ router.post('/save-card/test-init', async (req, res) => {
 router.post('/create-order-with-payment', authenticateToken, PaymentController.createOrderWithPayment);
 
 /**
- * @route POST /api/payments/pay-with-saved-card
- * @desc Оплата существующего заказа сохраненной картой
+ * @route POST /api/payments/pay-with-halyk-card
+ * @desc Оплата существующего заказа по коду карты Halyk
  * @access Private (требует JWT токен)
- * @body { order_id: number, saved_card_id: number }
- * @returns HTML страница с инициализацией платежа сохраненной картой
+ * @body { order_id: number, halyk_card_id: string }
+ * @returns HTML страница с инициализацией платежа по коду карты Halyk
  */
-router.post('/pay-with-saved-card', authenticateToken, PaymentController.payOrderWithSavedCard);
+router.post('/pay-with-halyk-card', authenticateToken, PaymentController.payWithSavedCard);
 
 /**
  * @route GET /api/payments/order-payment-status/:orderId
@@ -300,5 +335,24 @@ router.get('/failure', PaymentController.handlePaymentFailure);
  * @returns { status: string, message: string }
  */
 router.post('/webhook', PaymentController.handlePaymentWebhook);
+
+// ===== ПОЛУЧЕНИЕ СОХРАНЕННЫХ КАРТ ИЗ HALYK BANK API =====
+
+/**
+ * @route GET /api/payments/saved-cards/:accountId
+ * @desc Получить список сохраненных карт из Halyk Bank API
+ * @access Private (требует JWT токен)
+ * @param { string } accountId - ID аккаунта (обычно user_id)
+ * @returns { success: boolean, data: { cards: Card[], total: number, source: string, account_id: string }, message: string }
+ */
+router.get('/saved-cards/:accountId', authenticateToken, PaymentController.getSavedCardsFromHalyk);
+
+/**
+ * @route GET /api/payments/saved-cards-combined
+ * @desc Получить объединенный список сохраненных карт (локальная БД + Halyk Bank API)
+ * @access Private (требует JWT токен)
+ * @returns { success: boolean, data: { cards: Card[], total: number, sources: object }, message: string }
+ */
+router.get('/saved-cards-combined', authenticateToken, PaymentController.getCombinedSavedCards);
 
 export default router;

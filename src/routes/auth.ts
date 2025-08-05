@@ -40,5 +40,8 @@ router.put('/profile', authenticateToken, AuthController.updateProfile);
 // Headers: { "Authorization": "Bearer <token>" }
 // Body: { "current_password": "old_password", "new_password": "new_password" }
 router.post('/change-password', authenticateToken, AuthController.changePassword);
+// GET /api/auth/full-info - Получить профиль, адреса и сохраненные карты
+// Headers: { "Authorization": "Bearer <token>" }
+router.get('/full-info', authenticateToken, AuthController.getFullInfo);
 
 export default router;
