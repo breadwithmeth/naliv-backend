@@ -19,7 +19,4 @@ router.get('/orders/:id', BusinessOrderController.getOrderById);
 // Обновление статуса заказа
 router.patch('/orders/:id/status', BusinessOrderController.updateOrderStatus);
 
-// Обновление количества товара в заказе
-router.patch('/orders/:id/items/:itemRelationId', BusinessOrderController.updateOrderItemQuantity);
-
 export { router as businessOrderRoutes };
