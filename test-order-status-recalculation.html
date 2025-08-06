@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест пересчета стоимости и подтверждения платежа</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button.ready {
+            background: #28a745;
+        }
+        button.ready:hover {
+            background: #218838;
+        }
+        button.danger {
+            background: #dc3545;
+        }
+        button.danger:hover {
+            background: #c82333;
+        }
+        .response {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .warning {
+            background: #fff3cd;
+            border-color: #ffeaa7;
+            color: #856404;
+        }
+        .info {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+        .payment-info {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .status-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .status-btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .status-0 { background: #6c757d; color: white; }
+        .status-1 { background: #17a2b8; color: white; }
+        .status-2 { background: #28a745; color: white; }
+        .status-3 { background: #ffc107; color: black; }
+        .status-4 { background: #28a745; color: white; }
+        .status-6 { background: #dc3545; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>� Тест пересчета стоимости и подтверждения платежа</h1>
+        <p>Тестирование API смены статуса заказа с автоматическим пересчетом стоимости и подтверждением операции в Halyk Bank при статусе 2 ("Готов к выдаче").</p>
+    </div>
+
+    <div class="payment-info">
+        <h3>⚠️ Важная информация о платежах</h3>
+        <p><strong>При установке статуса 2 ("Готов к выдаче"):</strong></p>
+        <ul>
+            <li>🔄 Автоматически пересчитывается финальная стоимость заказа</li>
+            <li>💳 Выполняется подтверждение операции в Halyk Bank (частичное или полное списание)</li>
+            <li>💰 Списывается только необходимая сумма с учетом скидок и бонусов</li>
+            <li>📝 Результат операции логируется в поле extra заказа</li>
+        </ul>
+        <p><strong>Требования:</strong> Заказ должен иметь payment_id (созданный ранее через Halyk Bank API)</p>
+    </div>
+
+    <div class="container">
+        <h2>🔑 Авторизация</h2>
+        <div class="form-group">
+            <label for="business-token">Токен бизнеса:</label>
+            <input type="text" id="business-token" placeholder="Business JWT токен" value="">
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📋 Получить текущий статус заказа</h2>
+        <div class="grid">
+            <div class="form-group">
+                <label for="order-id">ID заказа:</label>
+                <input type="number" id="order-id" value="1">
+            </div>
+        </div>
+        <button onclick="getOrderStatus()">🔍 Получить статус и стоимость</button>
+    </div>
+
+    <div class="container">
+        <h2>🔄 Обновить статус заказа</h2>
+        
+        <div class="info">
+            <strong>Статусы заказов:</strong><br>
+            0 - Новый заказ<br>
+            1 - Принят магазином<br>
+            <strong>2 - Готов к выдаче (пересчет стоимости + подтверждение платежа!)</strong><br>
+            3 - Доставляется<br>
+            4 - Доставлен<br>
+            6 - Отменен
+        </div>
+
+        <div class="grid">
+            <div class="form-group">
+                <label for="status-order-id">ID заказа:</label>
+                <input type="number" id="status-order-id" value="1">
+            </div>
+            <div class="form-group">
+                <label for="new-status">Новый статус:</label>
+                <select id="new-status">
+                    <option value="0">0 - Новый заказ</option>
+                    <option value="1">1 - Принят магазином</option>
+                    <option value="2" selected>2 - Готов к выдаче (с платежом!)</option>
+                    <option value="3">3 - Доставляется</option>
+                    <option value="4">4 - Доставлен</option>
+                    <option value="6">6 - Отменен</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="status-buttons">
+            <button class="status-btn status-0" onclick="updateStatus(0)">Новый</button>
+            <button class="status-btn status-1" onclick="updateStatus(1)">Принят</button>
+            <button class="status-btn status-2" onclick="updateStatus(2)">Готов к выдаче ⚡💳</button>
+            <button class="status-btn status-3" onclick="updateStatus(3)">Доставляется</button>
+            <button class="status-btn status-4" onclick="updateStatus(4)">Доставлен</button>
+            <button class="status-btn status-6" onclick="updateStatus(6)">Отменен</button>
+        </div>
+
+        <br>
+        <button onclick="updateOrderStatus()">💾 Обновить статус</button>
+        <button class="ready" onclick="testPaymentFlow()">🧪 Тест полного цикла платежа</button>
+    </div>
+
+    <div class="container">
+        <h2>📋 Результат</h2>
+        <div id="response" class="response"></div>
+    </div>
+
+    <script>
+        function showResponse(data, className = 'success') {
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = JSON.stringify(data, null, 2);
+            responseDiv.className = `response ${className}`;
+        }
+
+        function showInfo(message) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = message;
+            responseDiv.className = 'response';
+        }
+
+        async function getOrderStatus() {
+            showInfo('Получение статуса и стоимости заказа...');
+            
+            const token = document.getElementById('business-token').value;
+            const orderId = document.getElementById('order-id').value;
+            
+            if (!token) {
+                showResponse({ error: 'Необходимо указать токен бизнеса' }, 'error');
+                return;
+            }
+            
+            if (!orderId) {
+                showResponse({ error: 'Необходимо указать ID заказа' }, 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/business/orders/${orderId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const order = data.data.order;
+                    const statusInfo = {
+                        order_id: order.order_id,
+                        current_status: order.current_status,
+                        cost_summary: order.cost_summary,
+                        items_count: order.items_count,
+                        payment_info: {
+                            has_payment_id: !!order.payment_id,
+                            extra_info: order.extra
+                        },
+                        full_order: data
+                    };
+                    showResponse(statusInfo, response.ok ? 'success' : 'error');
+                    
+                    // Автозаполнение ID заказа
+                    document.getElementById('status-order-id').value = orderId;
+                } else {
+                    showResponse(data, 'error');
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, 'error');
+            }
+        }
+
+        async function updateOrderStatus() {
+            showInfo('Обновление статуса заказа...');
+            
+            const token = document.getElementById('business-token').value;
+            const orderId = document.getElementById('status-order-id').value;
+            const newStatus = parseInt(document.getElementById('new-status').value);
+            
+            if (!token) {
+                showResponse({ error: 'Необходимо указать токен бизнеса' }, 'error');
+                return;
+            }
+            
+            if (!orderId) {
+                showResponse({ error: 'Необходимо указать ID заказа' }, 'error');
+                return;
+            }
+
+            if (newStatus === 2) {
+                showInfo('⚡💳 Обновление статуса на "Готов к выдаче" - стоимость будет пересчитана и платеж подтвержден в Halyk Bank...');
+            }
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/business/orders/${orderId}/status`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        status: newStatus
+                    })
+                });
+                
+                const data = await response.json();
+                showResponse(data, response.ok ? 'success' : 'error');
+                
+                if (data.success && newStatus === 2) {
+                    setTimeout(() => {
+                        showInfo('✅ Статус обновлен и платеж обработан! Проверим обновленную информацию заказа...');
+                        setTimeout(getOrderStatus, 1000);
+                    }, 1000);
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, 'error');
+            }
+        }
+
+        function updateStatus(status) {
+            document.getElementById('new-status').value = status;
+            updateOrderStatus();
+        }
+
+        async function testPaymentFlow() {
+            showInfo('🧪 Запуск теста полного цикла платежа...');
+            
+            const token = document.getElementById('business-token').value;
+            const orderId = document.getElementById('order-id').value || 1;
+            
+            if (!token) {
+                showResponse({ error: 'Необходимо указать токен бизнеса' }, 'error');
+                return;
+            }
+            
+            try {
+                let testResults = {
+                    step1: 'Получение исходного состояния...',
+                    step2: 'Установка промежуточного статуса...',
+                    step3: 'Активация пересчета и подтверждения платежа...',
+                    step4: 'Проверка результата...'
+                };
+                
+                showResponse(testResults, 'warning');
+                
+                // Шаг 1: Получение исходного состояния
+                const initialResponse = await fetch(`http://localhost:3000/api/business/orders/${orderId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const initialData = await initialResponse.json();
+                if (!initialData.success) {
+                    throw new Error('Не удалось получить заказ');
+                }
+                
+                const initialOrder = initialData.data.order;
+                testResults.step1 = {
+                    status: 'OK',
+                    current_status: initialOrder.current_status,
+                    cost: initialOrder.cost_summary.total_sum,
+                    has_payment_id: !!initialOrder.payment_id
+                };
+                
+                showResponse(testResults, 'warning');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Шаг 2: Установка статуса 1 (если не установлен)
+                if (initialOrder.current_status.status !== 1) {
+                    await fetch(`http://localhost:3000/api/business/orders/${orderId}/status`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ status: 1 })
+                    });
+                }
+                
+                testResults.step2 = { status: 'OK', message: 'Статус "Принят" установлен' };
+                showResponse(testResults, 'warning');
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Шаг 3: Установка статуса 2 (пересчет + подтверждение)
+                const confirmResponse = await fetch(`http://localhost:3000/api/business/orders/${orderId}/status`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ status: 2 })
+                });
+                
+                const confirmData = await confirmResponse.json();
+                testResults.step3 = {
+                    status: confirmData.success ? 'OK' : 'ERROR',
+                    response: confirmData
+                };
+                
+                showResponse(testResults, 'warning');
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Шаг 4: Проверка финального состояния
+                const finalResponse = await fetch(`http://localhost:3000/api/business/orders/${orderId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const finalData = await finalResponse.json();
+                const finalOrder = finalData.data.order;
+                
+                testResults.step4 = {
+                    status: 'COMPLETED',
+                    final_status: finalOrder.current_status,
+                    final_cost: finalOrder.cost_summary.total_sum,
+                    payment_confirmed: finalOrder.extra ? 'Проверьте поле extra' : 'Нет данных о подтверждении',
+                    cost_changed: initialOrder.cost_summary.total_sum !== finalOrder.cost_summary.total_sum
+                };
+                
+                testResults.summary = {
+                    initial_cost: initialOrder.cost_summary.total_sum,
+                    final_cost: finalOrder.cost_summary.total_sum,
+                    cost_difference: finalOrder.cost_summary.total_sum - initialOrder.cost_summary.total_sum,
+                    payment_processing: finalOrder.extra ? JSON.parse(finalOrder.extra) : 'Нет данных'
+                };
+                
+                showResponse(testResults, 'success');
+                
+            } catch (error) {
+                showResponse({ 
+                    error: 'Ошибка в тесте', 
+                    message: error.message,
+                    partial_results: testResults 
+                }, 'error');
+            }
+        }
+
+        // Автозаполнение полей
+        document.getElementById('order-id').addEventListener('input', function() {
+            document.getElementById('status-order-id').value = this.value;
+        });
+    </script>
+</body>
+</html>

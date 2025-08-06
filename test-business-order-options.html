@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест получения заказа бизнеса с опциями</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .response {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🛒 Тест получения заказа бизнеса с опциями</h1>
+        <p>Тестирование API для получения заказа с полной информацией о товарах и их опциях</p>
+    </div>
+
+    <div class="container">
+        <h2>📝 Параметры запроса</h2>
+        <div class="form-group">
+            <label for="business-token">Токен бизнеса:</label>
+            <input type="text" id="business-token" placeholder="Business JWT токен" value="">
+        </div>
+        
+        <div class="form-group">
+            <label for="order-id">ID заказа:</label>
+            <input type="number" id="order-id" value="1">
+        </div>
+
+        <button onclick="getOrderById()">🔍 Получить заказ по ID</button>
+        <button onclick="getBusinessOrders()">📋 Получить все заказы бизнеса</button>
+    </div>
+
+    <div class="container">
+        <h2>📋 Результат</h2>
+        <div id="response" class="response"></div>
+    </div>
+
+    <script>
+        function showResponse(data, isError = false) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = JSON.stringify(data, null, 2);
+            responseDiv.className = isError ? 'response error' : 'response success';
+        }
+
+        function showInfo(message) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = message;
+            responseDiv.className = 'response';
+        }
+
+        async function getOrderById() {
+            showInfo('Получение заказа по ID...');
+            
+            const token = document.getElementById('business-token').value;
+            const orderId = document.getElementById('order-id').value;
+            
+            if (!token) {
+                showResponse({ error: 'Необходимо указать токен бизнеса' }, true);
+                return;
+            }
+            
+            if (!orderId) {
+                showResponse({ error: 'Необходимо указать ID заказа' }, true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/business/orders/${orderId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const data = await response.json();
+                showResponse(data, !response.ok);
+                
+                // Выводим информацию об опциях отдельно
+                if (data.success && data.data.order.options) {
+                    console.log('Опции заказа:', data.data.order.options);
+                    console.log('Товары с опциями:', data.data.order.items);
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, true);
+            }
+        }
+
+        async function getBusinessOrders() {
+            showInfo('Получение всех заказов бизнеса...');
+            
+            const token = document.getElementById('business-token').value;
+            
+            if (!token) {
+                showResponse({ error: 'Необходимо указать токен бизнеса' }, true);
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:3000/api/business/orders?limit=5', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const data = await response.json();
+                showResponse(data, !response.ok);
+            } catch (error) {
+                showResponse({ error: error.message }, true);
+            }
+        }
+    </script>
+</body>
+</html>

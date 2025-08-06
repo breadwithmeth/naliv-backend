@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест редактирования количества товаров в заказе</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button.danger {
+            background: #dc3545;
+        }
+        button.danger:hover {
+            background: #c82333;
+        }
+        .response {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .error {
+            background: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .success {
+            background: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .item-card {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+            background: #f9f9f9;
+        }
+        .item-header {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📝 Тест редактирования количества товаров в заказе</h1>
+        <p>Тестирование API для изменения количества товаров в заказе бизнеса</p>
+    </div>
+
+    <div class="container">
+        <h2>🔑 Авторизация</h2>
+        <div class="form-group">
+            <label for="business-token">Токен бизнеса:</label>
+            <input type="text" id="business-token" placeholder="Business JWT токен" value="">
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>📋 Получить заказ и его товары</h2>
+        <div class="grid">
+            <div class="form-group">
+                <label for="order-id">ID заказа:</label>
+                <input type="number" id="order-id" value="1">
+            </div>
+        </div>
+        <button onclick="getOrderDetails()">🔍 Получить детали заказа</button>
+    </div>
+
+    <div class="container">
+        <h2>✏️ Редактировать количество товара</h2>
+        <div class="grid">
+            <div class="form-group">
+                <label for="edit-order-id">ID заказа:</label>
+                <input type="number" id="edit-order-id" value="1">
+            </div>
+            <div class="form-group">
+                <label for="item-relation-id">Relation ID товара:</label>
+                <input type="number" id="item-relation-id" placeholder="Из ответа выше">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="new-amount">Новое количество:</label>
+            <input type="number" id="new-amount" min="1" value="1">
+        </div>
+        <button onclick="updateItemQuantity()">💾 Обновить количество</button>
+    </div>
+
+    <div class="container">
+        <h2>📋 Результат</h2>
+        <div id="response" class="response"></div>
+    </div>
+
+    <script>
+        function showResponse(data, isError = false) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = JSON.stringify(data, null, 2);
+            responseDiv.className = isError ? 'response error' : 'response success';
+        }
+
+        function showInfo(message) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = message;
+            responseDiv.className = 'response';
+        }
+
+        async function getOrderDetails() {
+            showInfo('Получение деталей заказа...');
+            
+            const token = document.getElementById('business-token').value;
+            const orderId = document.getElementById('order-id').value;
+            
+            if (!token) {
+                showResponse({ error: 'Необходимо указать токен бизнеса' }, true);
+                return;
+            }
+            
+            if (!orderId) {
+                showResponse({ error: 'Необходимо указать ID заказа' }, true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/business/orders/${orderId}`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success && data.data.order.items) {
+                    // Дополнительно показываем информацию о товарах для удобства
+                    let itemsInfo = '\\n\\nТовары в заказе:\\n';
+                    data.data.order.items.forEach(item => {
+                        itemsInfo += `- Relation ID: ${item.relation_id}, Товар: ${item.name}, Количество: ${item.amount}\\n`;
+                    });
+                    
+                    showResponse({
+                        ...data,
+                        additionalInfo: itemsInfo
+                    }, !response.ok);
+                } else {
+                    showResponse(data, !response.ok);
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, true);
+            }
+        }
+
+        async function updateItemQuantity() {
+            showInfo('Обновление количества товара...');
+            
+            const token = document.getElementById('business-token').value;
+            const orderId = document.getElementById('edit-order-id').value;
+            const itemRelationId = document.getElementById('item-relation-id').value;
+            const newAmount = document.getElementById('new-amount').value;
+            
+            if (!token) {
+                showResponse({ error: 'Необходимо указать токен бизнеса' }, true);
+                return;
+            }
+            
+            if (!orderId || !itemRelationId || !newAmount) {
+                showResponse({ error: 'Необходимо заполнить все поля' }, true);
+                return;
+            }
+
+            if (parseInt(newAmount) <= 0) {
+                showResponse({ error: 'Количество должно быть больше 0' }, true);
+                return;
+            }
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/business/orders/${orderId}/items/${itemRelationId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({
+                        amount: parseInt(newAmount)
+                    })
+                });
+                
+                const data = await response.json();
+                showResponse(data, !response.ok);
+            } catch (error) {
+                showResponse({ error: error.message }, true);
+            }
+        }
+
+        // Автозаполнение полей
+        document.getElementById('order-id').addEventListener('input', function() {
+            document.getElementById('edit-order-id').value = this.value;
+        });
+    </script>
+</body>
+</html>

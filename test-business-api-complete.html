@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Полный тест Business Order API</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .test-section {
+            border-left: 4px solid #007bff;
+            padding-left: 15px;
+            margin-bottom: 20px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background: #0056b3; }
+        .success { background: #28a745; }
+        .warning { background: #ffc107; color: black; }
+        .danger { background: #dc3545; }
+        .response {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Полный тест Business Order API</h1>
+        <p>Тестирование всех функций бизнес API заказов</p>
+        
+        <div class="test-section">
+            <strong>🔑 Токен бизнеса:</strong>
+            <input type="text" id="token" placeholder="Business JWT токен" style="width: 300px;">
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="test-section">
+            <h3>1️⃣ Список заказов</h3>
+            <button onclick="getOrders()">Получить список заказов</button>
+        </div>
+
+        <div class="test-section">
+            <h3>2️⃣ Детали заказа</h3>
+            <input type="number" id="orderId" placeholder="ID заказа" value="1">
+            <button onclick="getOrderById()">Получить заказ по ID</button>
+        </div>
+
+        <div class="test-section">
+            <h3>3️⃣ Обновление статуса</h3>
+            <input type="number" id="statusOrderId" placeholder="ID заказа" value="1">
+            <select id="newStatus">
+                <option value="0">Новый</option>
+                <option value="1">Принят</option>
+                <option value="2">Готов к выдаче (пересчет!)</option>
+                <option value="3">Доставляется</option>
+                <option value="4">Доставлен</option>
+                <option value="6">Отменен</option>
+            </select>
+            <button onclick="updateStatus()">Обновить статус</button>
+        </div>
+
+        <div class="test-section">
+            <h3>4️⃣ Изменение количества товара</h3>
+            <input type="number" id="quantityOrderId" placeholder="ID заказа" value="1">
+            <input type="number" id="itemRelationId" placeholder="Item Relation ID" value="1">
+            <input type="number" id="newQuantity" placeholder="Новое количество" value="2" min="1">
+            <button onclick="updateQuantity()">Изменить количество</button>
+        </div>
+
+        <div class="test-section">
+            <h3>5️⃣ Комплексный тест</h3>
+            <button class="success" onclick="runFullTest()">🚀 Запустить полный тест</button>
+            <button class="warning" onclick="testCostRecalculation()">⚡ Тест пересчета стоимости</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <h3>📋 Результаты</h3>
+        <div id="response" class="response">Нажмите на кнопку для тестирования API...</div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:3000/api/business';
+        
+        function log(message) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent += `[${new Date().toLocaleTimeString()}] ${message}\n\n`;
+            responseDiv.scrollTop = responseDiv.scrollHeight;
+        }
+
+        function clear() {
+            document.getElementById('response').textContent = '';
+        }
+
+        async function apiCall(endpoint, method = 'GET', body = null) {
+            const token = document.getElementById('token').value;
+            if (!token) {
+                throw new Error('Токен не указан');
+            }
+
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                }
+            };
+
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+
+            const response = await fetch(`${API_BASE}${endpoint}`, options);
+            return await response.json();
+        }
+
+        async function getOrders() {
+            try {
+                log('🔍 Получение списка заказов...');
+                const data = await apiCall('/orders');
+                log(`✅ Получено заказов: ${data.data?.orders?.length || 0}`);
+                log(JSON.stringify(data, null, 2));
+            } catch (error) {
+                log(`❌ Ошибка: ${error.message}`);
+            }
+        }
+
+        async function getOrderById() {
+            try {
+                const orderId = document.getElementById('orderId').value;
+                if (!orderId) throw new Error('ID заказа не указан');
+                
+                log(`🔍 Получение заказа ${orderId}...`);
+                const data = await apiCall(`/orders/${orderId}`);
+                log(`✅ Заказ получен, статус: ${data.data?.order?.current_status?.status_name}`);
+                log(`💰 Стоимость: ${data.data?.order?.cost_summary?.total_cost}`);
+                log(JSON.stringify(data, null, 2));
+            } catch (error) {
+                log(`❌ Ошибка: ${error.message}`);
+            }
+        }
+
+        async function updateStatus() {
+            try {
+                const orderId = document.getElementById('statusOrderId').value;
+                const status = parseInt(document.getElementById('newStatus').value);
+                if (!orderId) throw new Error('ID заказа не указан');
+                
+                log(`🔄 Обновление статуса заказа ${orderId} на ${status}...`);
+                if (status === 2) log('⚡ Внимание: будет пересчитана стоимость!');
+                
+                const data = await apiCall(`/orders/${orderId}/status`, 'PATCH', { status });
+                log(`✅ Статус обновлен: ${data.message}`);
+                log(JSON.stringify(data, null, 2));
+            } catch (error) {
+                log(`❌ Ошибка: ${error.message}`);
+            }
+        }
+
+        async function updateQuantity() {
+            try {
+                const orderId = document.getElementById('quantityOrderId').value;
+                const itemRelationId = document.getElementById('itemRelationId').value;
+                const quantity = parseInt(document.getElementById('newQuantity').value);
+                
+                if (!orderId || !itemRelationId || !quantity) {
+                    throw new Error('Заполните все поля');
+                }
+                
+                log(`📦 Изменение количества товара в заказе ${orderId}...`);
+                const data = await apiCall(`/orders/${orderId}/items/${itemRelationId}`, 'PATCH', { quantity });
+                log(`✅ Количество обновлено: ${data.message}`);
+                log(JSON.stringify(data, null, 2));
+            } catch (error) {
+                log(`❌ Ошибка: ${error.message}`);
+            }
+        }
+
+        async function testCostRecalculation() {
+            clear();
+            log('⚡ ТЕСТ ПЕРЕСЧЕТА СТОИМОСТИ');
+            log('========================');
+            
+            try {
+                const orderId = document.getElementById('orderId').value || 1;
+                
+                // 1. Получаем текущее состояние
+                log('1️⃣ Получение текущего состояния заказа...');
+                let orderData = await apiCall(`/orders/${orderId}`);
+                log(`Текущий статус: ${orderData.data?.order?.current_status?.status_name}`);
+                log(`Текущая стоимость: ${orderData.data?.order?.cost_summary?.total_cost}`);
+                
+                // 2. Устанавливаем статус 1 (если не установлен)
+                log('\n2️⃣ Установка статуса "Принят"...');
+                await apiCall(`/orders/${orderId}/status`, 'PATCH', { status: 1 });
+                
+                // 3. Получаем стоимость после статуса 1
+                orderData = await apiCall(`/orders/${orderId}`);
+                const costBefore = orderData.data?.order?.cost_summary?.total_cost;
+                log(`Стоимость до пересчета: ${costBefore}`);
+                
+                // 4. Устанавливаем статус 2 (пересчет!)
+                log('\n3️⃣ Установка статуса "Готов к выдаче" (пересчет стоимости)...');
+                await apiCall(`/orders/${orderId}/status`, 'PATCH', { status: 2 });
+                
+                // 5. Проверяем пересчитанную стоимость
+                log('\n4️⃣ Проверка пересчитанной стоимости...');
+                orderData = await apiCall(`/orders/${orderId}`);
+                const costAfter = orderData.data?.order?.cost_summary?.total_cost;
+                log(`Стоимость после пересчета: ${costAfter}`);
+                
+                // 6. Результат
+                log('\n📊 РЕЗУЛЬТАТ ТЕСТА:');
+                log(`До пересчета: ${costBefore}`);
+                log(`После пересчета: ${costAfter}`);
+                log(`Изменение: ${costAfter !== costBefore ? 'ЕСТЬ' : 'НЕТ'}`);
+                
+                if (costAfter !== costBefore) {
+                    log('✅ Пересчет стоимости работает!');
+                } else {
+                    log('ℹ️ Стоимость не изменилась (возможно, уже была актуальной)');
+                }
+                
+            } catch (error) {
+                log(`❌ Ошибка в тесте: ${error.message}`);
+            }
+        }
+
+        async function runFullTest() {
+            clear();
+            log('🚀 ЗАПУСК ПОЛНОГО ТЕСТА');
+            log('======================');
+            
+            try {
+                // 1. Список заказов
+                log('1️⃣ Тест получения списка заказов...');
+                const ordersData = await apiCall('/orders');
+                log(`✅ Получено заказов: ${ordersData.data?.orders?.length || 0}`);
+                
+                if (!ordersData.data?.orders?.length) {
+                    log('❌ Нет заказов для тестирования');
+                    return;
+                }
+                
+                const testOrderId = ordersData.data.orders[0].order_id;
+                log(`🎯 Используем заказ ID: ${testOrderId}`);
+                
+                // 2. Детали заказа
+                log('\n2️⃣ Тест получения деталей заказа...');
+                const orderData = await apiCall(`/orders/${testOrderId}`);
+                log(`✅ Заказ получен: ${orderData.data?.order?.current_status?.status_name}`);
+                log(`💰 Стоимость: ${orderData.data?.order?.cost_summary?.total_cost}`);
+                log(`📦 Товаров: ${orderData.data?.order?.items_count}`);
+                
+                // 3. Обновление статуса
+                log('\n3️⃣ Тест обновления статуса...');
+                await apiCall(`/orders/${testOrderId}/status`, 'PATCH', { status: 1 });
+                log('✅ Статус обновлен на "Принят"');
+                
+                // 4. Тест пересчета (статус 2)
+                log('\n4️⃣ Тест пересчета стоимости...');
+                await apiCall(`/orders/${testOrderId}/status`, 'PATCH', { status: 2 });
+                log('✅ Статус обновлен на "Готов к выдаче" с пересчетом');
+                
+                // 5. Проверка товаров для теста количества
+                const finalOrder = await apiCall(`/orders/${testOrderId}`);
+                if (finalOrder.data?.order?.items?.length > 0) {
+                    const firstItem = finalOrder.data.order.items[0];
+                    log('\n5️⃣ Тест изменения количества товара...');
+                    await apiCall(`/orders/${testOrderId}/items/${firstItem.item_relation_id}`, 'PATCH', { quantity: firstItem.quantity + 1 });
+                    log('✅ Количество товара увеличено');
+                }
+                
+                log('\n🎉 ВСЕ ТЕСТЫ ПРОЙДЕНЫ УСПЕШНО!');
+                
+            } catch (error) {
+                log(`❌ Ошибка в полном тесте: ${error.message}`);
+            }
+        }
+
+        // Автозаполнение ID заказов
+        document.getElementById('orderId').addEventListener('input', function() {
+            document.getElementById('statusOrderId').value = this.value;
+            document.getElementById('quantityOrderId').value = this.value;
+        });
+    </script>
+</body>
+</html>

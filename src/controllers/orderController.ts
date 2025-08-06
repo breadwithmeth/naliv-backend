@@ -919,6 +919,13 @@ export class OrderController {
   }
 
   /**
+   * Публичный метод для расчета общей стоимости заказа
+   */
+  public static async calculateOrderCostPublic(orderId: number): Promise<{ sum_before_delivery: number; total_sum: number }> {
+    return OrderController.calculateOrderTotal(orderId);
+  }
+
+  /**
    * Расчет общей стоимости заказа (аналог getOrderSumTotal PHP)
    */
   private static async calculateOrderTotal(orderId: number): Promise<{ sum_before_delivery: number; total_sum: number }> {

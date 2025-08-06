@@ -10,6 +10,7 @@ import addressRoutes from './addresses';
 import paymentRoutes from './payments';
 import userCardsRoutes from './userCards';
 import bonusRoutes from './bonuses';
+import { businessOrderRoutes } from './businessOrderRoutes';
 
 const router = Router();
 
@@ -77,6 +78,7 @@ router.get('/', (req, res) => {
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
 router.use('/businesses', businessRoutes);
+router.use('/business', businessOrderRoutes);
 router.use('/orders', orderRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/items', require('./items').default);
