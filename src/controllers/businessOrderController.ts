@@ -38,7 +38,7 @@ export class BusinessOrderController {
       const date_to = req.query.date_to as string;
 
       const offset = (page - 1) * limit;
-
+      limit = 100;
       // Базовое условие фильтрации по бизнесу
       let whereCondition: any = {
         business_id: business_id
@@ -60,7 +60,7 @@ export class BusinessOrderController {
         prisma.orders.findMany({
           where: whereCondition,
           orderBy: {
-            log_timestamp: 'desc'
+            order_id: 'desc'
           },
          // skip: offset,
           take: limit
