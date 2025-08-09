@@ -349,6 +349,9 @@ export class BusinessOrderController {
         }) : null
       ]);
 
+      // Получаем пересчитанную стоимость заказа через OrderController
+      const orderTotals = await OrderController.calculateOrderCostPublic(order_id);
+
       // Получаем текущий статус (последний)
       const currentStatus = statuses.length > 0 ? statuses[0] : null;
 
@@ -448,14 +451,16 @@ export class BusinessOrderController {
         isCanceled: status.isCanceled
       }));
 
-      // Рассчитываем общие показатели
+      // Рассчитываем общие показатели с использованием пересчитанной стоимости
       const itemsTotal = itemsWithDetails.reduce((sum: number, item: any) => sum + item.total_cost, 0);
       const totalItemsCount = itemsWithDetails.reduce((sum: number, item: any) => sum + item.amount, 0);
-      const subtotal = orderCost ? Number(orderCost.cost) : 0;
+      
+      // Используем пересчитанную стоимость из OrderController
+      const subtotal = orderTotals.sum_before_delivery;
       const serviceFee = orderCost ? Number(orderCost.service_fee) : 0;
       const deliveryPrice = order.delivery_price;
       const bonusUsed = Number(order.bonus || 0);
-      const totalCost = subtotal + deliveryPrice + serviceFee;
+      const totalCost = orderTotals.total_sum;
 
       const formattedOrder = {
         order_id: order.order_id,

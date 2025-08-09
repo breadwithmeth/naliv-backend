@@ -24,18 +24,43 @@ export const authenticateBusinessToken = async (
 ): Promise<void> => {
   try {
     const authHeader = req.headers.authorization;
-    
+    const token = authHeader && authHeader.startsWith('Bearer ') 
+      ? authHeader.split(' ')[1] 
+      : null;
+
+    if (!token) {
+      throw createError(401, 'Токен доступа бизнеса не предоставлен');
+    }
+
+    // Ищем бизнес по токену
+    const business = await prisma.businesses.findFirst({
+      where: { 
+        token: token,
+        enabled: 1 // Проверяем, что бизнес активен
+      },
+      select: {
+        business_id: true,
+        name: true,
+        organization_id: true,
+        uuid: true,
+        enabled: true
+      }
+    });
+
+    if (!business) {
+      throw createError(401, 'Недействительный токен бизнеса или бизнес отключен');
+    }
 
     // Добавляем информацию о бизнесе в запрос
     req.business = {
-      business_id:6,
-      name: 'NALIV',
-      organization_id: 2,
-      uuid: '',
-      enabled: 1
+      business_id: business.business_id,
+      name: business.name,
+      organization_id: business.organization_id,
+      uuid: business.uuid,
+      enabled: business.enabled
     };
 
-    //console.log(`Авторизован бизнес: ${business.name} (ID: ${business.business_id})`);
+    console.log(`Авторизован бизнес: ${business.name} (ID: ${business.business_id})`);
     next();
   } catch (error) {
     next(error);
