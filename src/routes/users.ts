@@ -41,4 +41,10 @@ router.post('/:userId/liked-items', authenticateToken, UserItemsController.addIt
 // DELETE /api/users/:userId/liked-items/:itemId - Удалить товар из избранного
 router.delete('/:userId/liked-items/:itemId', authenticateToken, UserItemsController.removeItemFromLiked);
 
+// ===== FCM ТОКЕНЫ =====
+// POST /api/users/fcm-token - Сохранить FCM токен пользователя (требует авторизации)
+// Body: { "fcmToken": "token_string" }
+// userId определяется из JWT токена
+router.post('/fcm-token', authenticateToken, UserController.saveFcmToken);
+
 export default router;

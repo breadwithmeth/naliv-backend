@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import { errorHandler } from './middleware/errorHandler';
 import apiRoutes from './routes/api';
 import { connectDatabase } from './database';
+import FirebaseAdminService from './services/firebaseAdmin';
 
 // Загрузка переменных окружения
 dotenv.config();
@@ -17,9 +18,20 @@ class App {
     this.app = express();
     this.port = process.env.PORT || 3000;
     
+    this.initializeFirebase();
     this.initializeMiddlewares();
     this.initializeRoutes();
     this.initializeErrorHandling();
+  }
+
+  private initializeFirebase(): void {
+    try {
+      const firebaseService = FirebaseAdminService.getInstance();
+      firebaseService.initialize();
+    } catch (error: any) {
+      console.warn('Firebase Admin SDK не удалось инициализировать:', error.message);
+      console.warn('Push-уведомления будут недоступны');
+    }
   }
 
   private initializeMiddlewares(): void {

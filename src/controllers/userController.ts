@@ -1,12 +1,18 @@
 import { Request, Response, NextFunction } from 'express';
 import prisma from '../database';
 import { createError } from '../middleware/errorHandler';
+import { SaveFcmTokenRequest, SaveFcmTokenResponse } from '../types/users';
 
 interface AuthRequest extends Request {
   employee?: {
     employee_id: number;
     login: string;
     access_level: string;
+  };
+  user?: {
+    user_id: number;
+    login: string;
+    name?: string;
   };
 }
 
@@ -255,6 +261,64 @@ export class UserController {
     } catch (error: any) {
       console.error('Ошибка получения информации о пользователе:', error);
       next(createError(500, `Ошибка получения информации о пользователе: ${error.message}`));
+    }
+  }
+
+  /**
+   * Сохранить FCM токен пользователя
+   * POST /api/users/fcm-token
+   * Body: { "fcmToken": "token_string" }
+   * Требует авторизации - userId извлекается из JWT токена
+   */
+  static async saveFcmToken(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { fcmToken } = req.body;
+
+      // Проверяем авторизацию
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+
+      const userId = req.user.user_id;
+
+      // Валидация входных данных
+      if (!fcmToken) {
+        return next(createError(400, 'Поле fcmToken обязательно'));
+      }
+
+      if (typeof fcmToken !== 'string') {
+        return next(createError(400, 'fcmToken должен быть строкой'));
+      }
+
+      if (fcmToken.trim().length === 0) {
+        return next(createError(400, 'FCM токен не может быть пустым'));
+      }
+
+      // Обновляем FCM токен в поле OneSignalId
+      const updatedUser = await prisma.user.update({
+        where: { user_id: userId },
+        data: { OneSignalId: fcmToken.trim() },
+        select: {
+          user_id: true,
+          name: true,
+          first_name: true,
+          last_name: true,
+          OneSignalId: true
+        }
+      });
+
+      res.json({
+        success: true,
+        data: {
+          user: updatedUser,
+          message: 'FCM токен успешно сохранен'
+        },
+        message: 'FCM токен пользователя обновлен'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка сохранения FCM токена:', error);
+      next(createError(500, `Ошибка сохранения FCM токена: ${error.message}`));
     }
   }
 }

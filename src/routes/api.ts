@@ -10,6 +10,7 @@ import addressRoutes from './addresses';
 import paymentRoutes from './payments';
 import userCardsRoutes from './userCards';
 import bonusRoutes from './bonuses';
+import notificationRoutes from './notifications';
 import { businessOrderRoutes } from './businessOrderRoutes';
 
 const router = Router();
@@ -31,6 +32,7 @@ router.get('/', (req, res) => {
       payments: '/api/payments',
       user_cards: '/api/user/cards',
       bonuses: '/api/bonuses',
+      notifications: '/api/notifications',
       employee_auth: '/api/employee/auth',
       health: '/health'
     },
@@ -88,6 +90,7 @@ router.use('/addresses', addressRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/user', userCardsRoutes);
 router.use('/bonuses', bonusRoutes);
+router.use('/notifications', notificationRoutes);
 router.use('/employee/auth', employeeAuthRoutes);
 
 export default router;
