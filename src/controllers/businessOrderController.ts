@@ -62,7 +62,7 @@ export class BusinessOrderController {
           orderBy: {
             log_timestamp: 'desc'
           },
-          skip: offset,
+         // skip: offset,
           take: limit
         }),
         prisma.orders.count({
