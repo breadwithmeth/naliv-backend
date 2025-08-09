@@ -35,7 +35,7 @@ export const authenticateBusinessToken = async (
       enabled: 1
     };
 
-    console.log(`Авторизован бизнес: ${business.name} (ID: ${business.business_id})`);
+    //console.log(`Авторизован бизнес: ${business.name} (ID: ${business.business_id})`);
     next();
   } catch (error) {
     next(error);
