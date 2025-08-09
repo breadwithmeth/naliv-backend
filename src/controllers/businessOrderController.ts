@@ -45,15 +45,15 @@ export class BusinessOrderController {
       };
 
       // Фильтр по дате
-      if (date_from || date_to) {
-        whereCondition.log_timestamp = {};
-        if (date_from) {
-          whereCondition.log_timestamp.gte = new Date(date_from);
-        }
-        if (date_to) {
-          whereCondition.log_timestamp.lte = new Date(date_to);
-        }
-      }
+      //if (date_from || date_to) {
+      //  whereCondition.log_timestamp = {};
+      //  if (date_from) {
+      //    whereCondition.log_timestamp.gte = new Date(date_from);
+      //  }
+      //  if (date_to) {
+      //    whereCondition.log_timestamp.lte = new Date(date_to);
+      //  }
+      //}
 
       // Получаем заказы с пагинацией
       const [orders, totalCount] = await Promise.all([
