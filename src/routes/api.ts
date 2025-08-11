@@ -11,6 +11,8 @@ import paymentRoutes from './payments';
 import userCardsRoutes from './userCards';
 import bonusRoutes from './bonuses';
 import notificationRoutes from './notifications';
+import courierAuthRoutes from './courierAuth';
+import courierRoutes from './courier';
 import { businessOrderRoutes } from './businessOrderRoutes';
 
 const router = Router();
@@ -34,6 +36,8 @@ router.get('/', (req, res) => {
       bonuses: '/api/bonuses',
       notifications: '/api/notifications',
       employee_auth: '/api/employee/auth',
+      courier_auth: '/api/courier/auth',
+      courier: '/api/courier',
       health: '/health'
     },
     auth_info: {
@@ -92,5 +96,7 @@ router.use('/user', userCardsRoutes);
 router.use('/bonuses', bonusRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/employee/auth', employeeAuthRoutes);
+router.use('/courier/auth', courierAuthRoutes);
+router.use('/courier', courierRoutes);
 
 export default router;
