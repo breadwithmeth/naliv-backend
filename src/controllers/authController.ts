@@ -543,13 +543,15 @@ export class AuthController {
         });
 
         // Создаем бонусную карту для нового пользователя
-        await prisma.bonus_cards.create({
+        
+      }
+
+      await prisma.bonus_cards.create({
           data: {
             user_id: user.user_id,
             card_uuid: `${Date.now()}${Math.random().toString(36).substr(2, 9)}` // Простая генерация UUID
           }
         });
-      }
 
       // Генерация временного пароля для входа по одноразовому коду
       const rawPassword = require('crypto').randomBytes(6).toString('hex');
