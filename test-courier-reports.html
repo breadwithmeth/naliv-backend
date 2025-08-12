@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест API отчетов по курьерам</ti        <div class="section" style="background-color: #e8f5e8; border-left: 4px solid #4CAF50;">
+            <h3>📋 Упрощенный отчет по доставкам</h3>
+            <p>Новая версия API возвращает простой список заказов со статусом 4 (доставлен):</p>
+            <ul>
+                <li><strong>Только доставленные заказы</strong> - показывает только заказы со статусом 4</li>
+                <li><strong>Статус из order_status</strong> - использует последнюю запись из таблицы order_status</li>
+                <li><strong>Информация о курьере</strong> - если курьер назначен, показывается его информация</li>
+                <li><strong>Простая статистика</strong> - количество заказов и выручка</li>
+                <li><strong>Фильтрация по времени</strong> - поддержка различных форматов даты</li>
+            </ul>
+        </div>style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #555;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], input[type="date"], input[type="datetime-local"], input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            border-color: #4CAF50;
+            outline: none;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .detailed-btn {
+            background-color: #2196F3;
+        }
+        .detailed-btn:hover {
+            background-color: #1976D2;
+        }
+        .clear-btn {
+            background-color: #ff9800;
+        }
+        .clear-btn:hover {
+            background-color: #f57c00;
+        }
+        .response {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+        }
+        .flex-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .flex-row .form-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        .summary-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        .summary-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 18px;
+        }
+        .summary-card .number {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .tabs {
+            display: flex;
+            background-color: #f1f1f1;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        .tab {
+            flex: 1;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: background-color 0.3s;
+        }
+        .tab.active {
+            background-color: #4CAF50;
+            color: white;
+        }
+        .tab:hover {
+            background-color: #45a049;
+            color: white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        tr:hover {
+            background-color: #f5f5f5;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Тест API отчетов по курьерам (Статус из order_status)</h1>
+        
+        <div class="section" style="background-color: #e8f5e8; border-left: 4px solid #4CAF50;">
+            <h3>� Упрощенный отчет по доставкам</h3>
+            <p>Новая версия API возвращает простой список заказов со статусом 4 (доставлен):</p>
+            <ul>
+                <li><strong>Только доставленные заказы</strong> - показывает только заказы со статусом 4</li>
+                <li><strong>Информация о курьере</strong> - если курьер назначен, показывается его информация</li>
+                <li><strong>Простая статистика</strong> - количество заказов и выручка</li>
+                <li><strong>Фильтрация по времени</strong> - поддержка различных форматов даты</li>
+            </ul>
+        </div>
+        
+        <!-- Авторизация бизнеса -->
+        <div class="section">
+            <h2>🔑 Авторизация бизнеса</h2>
+            <div class="form-group">
+                <label for="businessToken">Токен бизнеса:</label>
+                <input type="text" id="businessToken" placeholder="Введите токен бизнеса">
+            </div>
+            <button onclick="testBusinessAuth()">🔐 Проверить токен</button>
+        </div>
+        
+        <!-- Вкладки -->
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('general')">Доставленные заказы</div>
+            <div class="tab" onclick="switchTab('detailed')">Заказы курьера</div>
+        </div>
+
+        <!-- Общий отчет -->
+        <div id="general" class="tab-content active">
+            <div class="section">
+                <h2>� Список доставленных заказов</h2>
+                <p>Показывает все заказы со статусом 4 (доставлен) с информацией о курьере</p>
+                <div class="flex-row">
+                    <div class="form-group">
+                        <label for="startDate">Дата и время начала:</label>
+                        <input type="datetime-local" id="startDate" value="2025-08-01T00:00">
+                        <small style="color: #666; display: block; margin-top: 5px;">
+                            Можно также использовать только дату (YYYY-MM-DD) или дату с временем
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label for="endDate">Дата и время окончания:</label>
+                        <input type="datetime-local" id="endDate" value="2025-08-12T23:59">
+                        <small style="color: #666; display: block; margin-top: 5px;">
+                            При указании только даты время автоматически установится на 23:59:59
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label for="cityId">ID города (опционально):</label>
+                        <input type="number" id="cityId" placeholder="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="courierId">ID курьера (опционально):</label>
+                        <input type="number" id="courierId" placeholder="5">
+                    </div>
+                </div>
+                <button onclick="getGeneralReport()">📊 Получить общий отчет</button>
+                <button onclick="clearResponse()" class="clear-btn">🗑️ Очистить</button>
+            </div>
+        </div>
+
+        <!-- Детальный отчет -->
+        <div id="detailed" class="tab-content">
+            <div class="section">
+                <h2>� Заказы конкретного курьера</h2>
+                <p>Показывает доставленные заказы определенного курьера</p>
+                <div class="flex-row">
+                    <div class="form-group">
+                        <label for="detailedCourierId">ID курьера (обязательно):</label>
+                        <input type="number" id="detailedCourierId" value="1" placeholder="1">
+                    </div>
+                    <div class="form-group">
+                        <label for="detailedStartDate">Дата и время начала:</label>
+                        <input type="datetime-local" id="detailedStartDate" value="2025-08-01T00:00">
+                        <small style="color: #666; display: block; margin-top: 5px;">
+                            Формат: YYYY-MM-DD или YYYY-MM-DD HH:mm:ss
+                        </small>
+                    </div>
+                    <div class="form-group">
+                        <label for="detailedEndDate">Дата и время окончания:</label>
+                        <input type="datetime-local" id="detailedEndDate" value="2025-08-12T23:59">
+                        <small style="color: #666; display: block; margin-top: 5px;">
+                            При указании только даты время установится на конец дня
+                        </small>
+                    </div>
+                </div>
+                <button onclick="getDetailedReport()" class="detailed-btn">🔍 Получить детальный отчет</button>
+                <button onclick="clearResponse()" class="clear-btn">🗑️ Очистить</button>
+            </div>
+        </div>
+
+        <!-- Ответ сервера -->
+        <div id="response"></div>
+    </div>
+
+    <script>
+        const BASE_URL = 'http://localhost:3000/api';
+
+        function switchTab(tabName) {
+            // Скрываем все вкладки
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => content.classList.remove('active'));
+            
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => tab.classList.remove('active'));
+            
+            // Показываем выбранную вкладку
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        function showResponse(data, isError = false) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.className = 'response ' + (isError ? 'error' : 'success');
+            
+            if (!isError && data.success) {
+                responseDiv.innerHTML = formatReportResponse(data);
+            } else {
+                responseDiv.textContent = JSON.stringify(data, null, 2);
+            }
+        }
+
+        function showInfo(message) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.className = 'response info';
+            responseDiv.textContent = message;
+        }
+
+        function clearResponse() {
+            document.getElementById('response').innerHTML = '';
+        }
+
+        function formatReportResponse(data) {
+            if (data.data.courier_info) {
+                // Детальный отчет курьера
+                return formatDetailedReport(data);
+            } else {
+                // Общий отчет
+                return formatGeneralReport(data);
+            }
+        }
+
+        function formatGeneralReport(data) {
+            const report = data.data;
+            let html = `
+                <div class="summary-card">
+                    <h3>📊 Сводка за период: ${report.period.start_date} - ${report.period.end_date}</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                        <div>
+                            <div class="number">${report.summary.total_orders}</div>
+                            <div>Всего заказов</div>
+                        </div>
+                        <div>
+                            <div class="number">${report.summary.total_delivered}</div>
+                            <div>Доставлено</div>
+                        </div>
+                        <div>
+                            <div class="number">${report.summary.delivery_success_rate}%</div>
+                            <div>Успешность</div>
+                        </div>
+                        <div>
+                            <div class="number">${report.summary.active_couriers}</div>
+                            <div>Активных курьеров</div>
+                        </div>
+                        <div>
+                            <div class="number">${report.summary.total_delivery_revenue.toLocaleString()} ₸</div>
+                            <div>Выручка с доставки</div>
+                        </div>
+                        <div>
+                            <div class="number">${Math.round(report.summary.avg_delivery_price)} ₸</div>
+                            <div>Средняя цена доставки</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            if (report.top_couriers.length > 0) {
+                html += `
+                    <h3>🏆 Топ курьеров</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Курьер</th>
+                                <th>Город</th>
+                                <th>Доставлено</th>
+                                <th>Заработано</th>
+                                <th>Успешность</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                report.top_couriers.forEach(courier => {
+                    html += `
+                        <tr>
+                            <td>${courier.courier_name} (${courier.courier_login})</td>
+                            <td>${courier.city_name || 'Не указан'}</td>
+                            <td>${courier.delivered_orders}</td>
+                            <td>${courier.total_delivery_earnings.toLocaleString()} ₸</td>
+                            <td>${courier.success_rate}%</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            if (report.daily_statistics.length > 0) {
+                html += `
+                    <h3>📅 Статистика по дням</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Дата</th>
+                                <th>Заказов</th>
+                                <th>Доставлено</th>
+                                <th>Курьеров</th>
+                                <th>Выручка</th>
+                                <th>Успешность</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                report.daily_statistics.forEach(day => {
+                    html += `
+                        <tr>
+                            <td>${day.date}</td>
+                            <td>${day.orders_count}</td>
+                            <td>${day.delivered_count}</td>
+                            <td>${day.active_couriers_count}</td>
+                            <td>${day.daily_delivery_revenue.toLocaleString()} ₸</td>
+                            <td>${day.success_rate}%</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            return html;
+        }
+
+        function formatDetailedReport(data) {
+            const report = data.data;
+            let html = `
+                <div class="summary-card">
+                    <h3>👤 ${report.courier_info.full_name} (${report.courier_info.login})</h3>
+                    <p>Город: ${report.courier_info.city_name || 'Не указан'}</p>
+                    <p>Период: ${report.period.start_date} - ${report.period.end_date}</p>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0;">
+                    <div class="summary-card">
+                        <h3>📦 Заказы</h3>
+                        <div class="number">${report.statistics.total_orders}</div>
+                        <small>Всего заказов</small>
+                    </div>
+                    <div class="summary-card">
+                        <h3>✅ Доставлено</h3>
+                        <div class="number">${report.statistics.delivered_orders}</div>
+                        <small>${report.statistics.success_rate}% успешность</small>
+                    </div>
+                    <div class="summary-card">
+                        <h3>💰 Заработано</h3>
+                        <div class="number">${report.statistics.total_earnings.toLocaleString()} ₸</div>
+                        <small>Средняя доставка: ${report.statistics.avg_delivery_price} ₸</small>
+                    </div>
+                    <div class="summary-card">
+                        <h3>⏱️ Время доставки</h3>
+                        <div class="number">${report.statistics.avg_delivery_time_minutes}</div>
+                        <small>Среднее время (мин)</small>
+                    </div>
+                </div>
+            `;
+
+            if (report.orders.length > 0) {
+                html += `
+                    <h3>📋 Список заказов</h3>
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>ID заказа</th>
+                                <th>Статус</th>
+                                <th>Магазин</th>
+                                <th>Клиент</th>
+                                <th>Цена доставки</th>
+                                <th>Время доставки</th>
+                                <th>Дата создания</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                report.orders.forEach(order => {
+                    const statusColor = order.status === 4 ? '#28a745' : 
+                                       order.status === 5 ? '#dc3545' : 
+                                       order.status === 3 ? '#007bff' : '#6c757d';
+                    
+                    html += `
+                        <tr>
+                            <td>#${order.order_id}</td>
+                            <td style="color: ${statusColor}; font-weight: bold;">${order.status_name}</td>
+                            <td>${order.business_name}</td>
+                            <td>${order.customer_name}</td>
+                            <td>${order.delivery_price.toLocaleString()} ₸</td>
+                            <td>${order.delivery_time_minutes ? order.delivery_time_minutes + ' мин' : '-'}</td>
+                            <td>${new Date(order.order_created).toLocaleDateString('ru-RU')}</td>
+                        </tr>
+                    `;
+                });
+                
+                html += `
+                        </tbody>
+                    </table>
+                `;
+            }
+
+            return html;
+        }
+
+        async function makeRequest(endpoint, params = {}) {
+            try {
+                showInfo(`Отправка запроса: GET ${endpoint}...`);
+                
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+
+                const businessToken = document.getElementById('businessToken').value;
+                if (businessToken) {
+                    headers['Authorization'] = `Bearer ${businessToken}`;
+                }
+
+                const url = new URL(`${BASE_URL}${endpoint}`);
+                Object.keys(params).forEach(key => {
+                    if (params[key]) {
+                        url.searchParams.append(key, params[key]);
+                    }
+                });
+
+                const response = await fetch(url, { headers });
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResponse(data);
+                    return data;
+                } else {
+                    showResponse(data, true);
+                    return null;
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, true);
+                return null;
+            }
+        }
+
+        // Вспомогательная функция для обработки даты и времени
+        function formatDateTime(dateTimeValue) {
+            if (!dateTimeValue) return '';
+            
+            // Если это datetime-local значение (формат: YYYY-MM-DDTHH:mm)
+            if (dateTimeValue.includes('T')) {
+                // Конвертируем в нужный формат
+                return dateTimeValue.replace('T', ' ') + ':00'; // Добавляем секунды
+            }
+            
+            // Если это просто дата
+            return dateTimeValue;
+        }
+
+        async function getGeneralReport() {
+            const startDateRaw = document.getElementById('startDate').value;
+            const endDateRaw = document.getElementById('endDate').value;
+            const cityId = document.getElementById('cityId').value;
+            const courierId = document.getElementById('courierId').value;
+
+            if (!startDateRaw || !endDateRaw) {
+                showResponse({ error: 'Укажите даты начала и окончания' }, true);
+                return;
+            }
+
+            const params = {
+                start_date: formatDateTime(startDateRaw),
+                end_date: formatDateTime(endDateRaw)
+            };
+
+            if (cityId) params.city_id = cityId;
+            if (courierId) params.courier_id = courierId;
+
+            await makeRequest('/businesses/reports/couriers', params);
+        }
+
+        async function getDetailedReport() {
+            const courierId = document.getElementById('detailedCourierId').value;
+            const startDateRaw = document.getElementById('detailedStartDate').value;
+            const endDateRaw = document.getElementById('detailedEndDate').value;
+
+            if (!courierId) {
+                showResponse({ error: 'Укажите ID курьера' }, true);
+                return;
+            }
+
+            if (!startDateRaw || !endDateRaw) {
+                showResponse({ error: 'Укажите даты начала и окончания' }, true);
+                return;
+            }
+
+            const params = {
+                start_date: formatDateTime(startDateRaw),
+                end_date: formatDateTime(endDateRaw)
+            };
+
+            await makeRequest(`/businesses/reports/courier/${courierId}`, params);
+        }
+
+        async function testBusinessAuth() {
+            const businessToken = document.getElementById('businessToken').value;
+            
+            if (!businessToken) {
+                showResponse({ error: 'Введите токен бизнеса' }, true);
+                return;
+            }
+
+            try {
+                showInfo('Проверка токена бизнеса...');
+                
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${businessToken}`
+                };
+
+                // Делаем простой запрос для проверки токена
+                const response = await fetch(`${BASE_URL}/businesses`, { headers });
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResponse({
+                        success: true,
+                        message: 'Токен бизнеса действителен',
+                        status: response.status
+                    });
+                } else {
+                    showResponse(data, true);
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, true);
+            }
+        }
+
+        // Устанавливаем текущую дату по умолчанию
+        window.onload = function() {
+            const today = new Date().toISOString().split('T')[0];
+            const weekAgo = new Date();
+            weekAgo.setDate(weekAgo.getDate() - 7);
+            const weekAgoStr = weekAgo.toISOString().split('T')[0];
+            
+            document.getElementById('endDate').value = today;
+            document.getElementById('detailedEndDate').value = today;
+            document.getElementById('startDate').value = weekAgoStr;
+            document.getElementById('detailedStartDate').value = weekAgoStr;
+        };
+    </script>
+</body>
+</html>

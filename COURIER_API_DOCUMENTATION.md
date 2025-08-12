@@ -94,6 +94,72 @@ Authorization: Bearer <token>
 
 ## Основные методы курьера
 
+### Геолокация курьера
+
+#### Сохранение геолокации курьера
+```http
+POST /api/courier/location
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "lat": 43.256649,
+  "lon": 76.945465
+}
+```
+
+**Ответ 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "courier_id": 12,
+    "location": {
+      "lat": 43.256649,
+      "lon": 76.945465
+    },
+    "updated_at": "2025-08-11T14:30:00Z"
+  },
+  "message": "Местоположение курьера обновлено"
+}
+```
+
+**Возможные ошибки:**
+- **400** - Некорректные координаты (широта: -90 до 90, долгота: -180 до 180)
+- **401** - Требуется авторизация
+- **500** - Ошибка сохранения в базе данных
+
+#### Получение текущей геолокации курьера
+```http
+GET /api/courier/location
+Authorization: Bearer <token>
+```
+
+**Ответ 200 (геолокация найдена):**
+```json
+{
+  "success": true,
+  "data": {
+    "courier_id": 12,
+    "location": {
+      "lat": 43.256649,
+      "lon": 76.945465
+    },
+    "last_updated": "2025-08-11T14:30:00Z"
+  },
+  "message": "Текущее местоположение курьера"
+}
+```
+
+**Ответ 404 (геолокация не найдена):**
+```json
+{
+  "success": false,
+  "data": null,
+  "message": "Местоположение курьера не найдено"
+}
+```
+
 ### Получение списка городов
 ```http
 GET /api/courier/cities
@@ -466,37 +532,51 @@ curl -X POST http://localhost:3000/api/courier/auth/login \
   -d '{"login":"courier_1","password":"StrongPass123"}'
 ```
 
-2. **Получение списка городов**
+2. **Сохранение геолокации курьера**
+```bash
+curl -X POST http://localhost:3000/api/courier/location \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"lat":43.256649,"lon":76.945465}'
+```
+
+3. **Получение текущей геолокации**
+```bash
+curl -H "Authorization: Bearer <token>" \
+  http://localhost:3000/api/courier/location
+```
+
+4. **Получение списка городов**
 ```bash
 curl -H "Authorization: Bearer <token>" \
   http://localhost:3000/api/courier/cities
 ```
 
-3. **Получение доступных заказов в городе**
+5. **Получение доступных заказов в городе**
 ```bash
 curl -H "Authorization: Bearer <token>" \
   "http://localhost:3000/api/courier/orders/available?city=1"
 ```
 
-4. **Просмотр детальной информации о заказе**
+6. **Просмотр детальной информации о заказе**
 ```bash
 curl -H "Authorization: Bearer <token>" \
   http://localhost:3000/api/courier/orders/123
 ```
 
-5. **Взятие заказа на доставку**
+7. **Взятие заказа на доставку**
 ```bash
 curl -X POST -H "Authorization: Bearer <token>" \
   http://localhost:3000/api/courier/orders/123/take
 ```
 
-6. **Выдача заказа (завершение доставки)**
+8. **Выдача заказа (завершение доставки)**
 ```bash
 curl -X POST -H "Authorization: Bearer <token>" \
   http://localhost:3000/api/courier/orders/123/deliver
 ```
 
-7. **Получение заказов курьера в процессе доставки**
+9. **Получение заказов курьера в процессе доставки**
 ```bash
 curl -H "Authorization: Bearer <token>" \
   "http://localhost:3000/api/courier/orders/my-deliveries"
@@ -522,3 +602,10 @@ curl -H "Authorization: Bearer <token>" \
 - Показываются только заказы с типом доставки 1 (доставка курьером)
 - Все координаты в формате lat/lon (широта/долгота)
 - При поиске заказов используется `city_id` из таблицы `cities`
+- **Геолокация курьера:**
+  - Координаты хранятся в таблице `courier_location`
+  - Широта (lat): от -90 до 90 градусов
+  - Долгота (lon): от -180 до 180 градусов
+  - Каждый курьер может иметь только одну актуальную геолокацию
+  - При сохранении новых координат предыдущие автоматически перезаписываются
+  - Поле `updated_at` автоматически обновляется при каждом сохранении

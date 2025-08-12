@@ -1,9 +1,43 @@
 import { Request, Response, NextFunction } from 'express';
+import { BusinessAuthRequest } from '../middleware/businessAuth';
 import prisma from '../database';
 import { createError } from '../middleware/errorHandler';
 
 export class BusinessController {
   
+  /**
+   * Валидация и парсинг даты с поддержкой времени
+   */
+  private static validateAndParseDate(dateString: string, isEndDate = false): Date {
+    if (!dateString) {
+      throw createError(400, 'Дата не может быть пустой');
+    }
+
+    // Поддерживаемые форматы:
+    // YYYY-MM-DD
+    // YYYY-MM-DD HH:mm
+    // YYYY-MM-DD HH:mm:ss
+    // YYYY-MM-DDTHH:mm:ss
+    // YYYY-MM-DDTHH:mm:ss.sssZ (ISO)
+    
+    const date = new Date(dateString);
+    
+    if (isNaN(date.getTime())) {
+      throw createError(400, 'Неверный формат даты. Поддерживаемые форматы: YYYY-MM-DD, YYYY-MM-DD HH:mm:ss, ISO 8601');
+    }
+
+    // Если передана только дата без времени (длина 10 символов), устанавливаем время
+    if (dateString.length === 10) {
+      if (isEndDate) {
+        date.setHours(23, 59, 59, 999); // Конец дня
+      } else {
+        date.setHours(0, 0, 0, 0); // Начало дня
+      }
+    }
+
+    return date;
+  }
+
   /**
    * Получить все бизнесы
    */
@@ -473,5 +507,265 @@ export class BusinessController {
     } catch (error) {
       next(error);
     }
+  }
+
+  /**
+   * Отчет по курьерам и доставкам за период
+   * Использует последнюю запись из таблицы order_status для определения статуса заказа
+   */
+  static async getCouriersDeliveryReport(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const startDate = req.query.start_date as string;
+      const endDate = req.query.end_date as string;
+      const businessId = req.business?.business_id;
+
+      if (!startDate || !endDate) {
+        throw createError(400, 'Необходимо указать start_date и end_date');
+      }
+
+      // Валидация и парсинг дат с поддержкой времени
+      const start = BusinessController.validateAndParseDate(startDate, false);
+      const end = BusinessController.validateAndParseDate(endDate, true);
+      
+      if (start > end) {
+        throw createError(400, 'Дата начала не может быть больше даты окончания');
+      }
+
+      // Запрос для получения доставленных заказов с использованием последней записи из order_status
+      let sqlQuery = `
+        SELECT 
+          o.order_id,
+          o.order_uuid,
+          o.delivery_price,
+          o.log_timestamp as order_created,
+          o.courier_id,
+          c.login as courier_login,
+          c.full_name as courier_name,
+          b.name as business_name,
+          u.name as customer_name,
+          da.address as delivery_address,
+          os.status as current_status
+        FROM orders o
+        LEFT JOIN couriers c ON c.courier_id = o.courier_id
+        LEFT JOIN businesses b ON b.business_id = o.business_id
+        LEFT JOIN users u ON u.user_id = o.user_id
+        LEFT JOIN user_addreses da ON da.address_id = o.address_id
+        LEFT JOIN (
+          SELECT 
+            order_id, 
+            status,
+            ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY log_timestamp DESC) as rn
+          FROM order_status
+        ) os ON o.order_id = os.order_id AND os.rn = 1
+        WHERE os.status = 4 
+          AND o.log_timestamp BETWEEN ? AND ?
+      `;
+
+      const queryParams: any[] = [start, end];
+
+      if (businessId) {
+        sqlQuery += ` AND o.business_id = ?`;
+        queryParams.push(businessId);
+      }
+
+      sqlQuery += ` ORDER BY o.log_timestamp DESC`;
+
+      const deliveredOrders = await prisma.$queryRawUnsafe<any[]>(sqlQuery, ...queryParams);
+
+      // Простая статистика
+      const totalOrders = deliveredOrders.length;
+      const ordersWithCourier = deliveredOrders.filter(order => order.courier_id).length;
+      const totalRevenue = deliveredOrders.reduce((sum, order) => sum + Number(order.total_sum), 0);
+      const totalDeliveryRevenue = deliveredOrders.reduce((sum, order) => sum + Number(order.delivery_price), 0);
+
+      res.json({
+        success: true,
+        data: {
+          period: {
+            start_date: startDate,
+            end_date: endDate
+          },
+          summary: {
+            total_delivered_orders: totalOrders,
+            orders_with_courier: ordersWithCourier,
+            orders_without_courier: totalOrders - ordersWithCourier,
+            total_revenue: totalRevenue,
+            total_delivery_revenue: totalDeliveryRevenue
+          },
+          orders: deliveredOrders.map(order => ({
+            order_id: order.order_id,
+            order_uuid: order.order_uuid,
+            delivery_price: Number(order.delivery_price),
+            total_sum: Number(order.total_sum),
+            order_created: order.order_created,
+            courier: order.courier_id ? {
+              courier_id: order.courier_id,
+              login: order.courier_login,
+              name: order.courier_name
+            } : null,
+            business_name: order.business_name,
+            customer_name: order.customer_name,
+            delivery_address: order.delivery_address
+          }))
+        },
+        message: `Найдено ${totalOrders} доставленных заказов за период с ${startDate} по ${endDate}`
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Детальный отчет по конкретному курьеру за период
+   * Использует последнюю запись из таблицы order_status для определения статуса заказа
+   */
+  static async getCourierDetailedReport(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const courierId = parseInt(req.params.courierId);
+      const startDate = req.query.start_date as string;
+      const endDate = req.query.end_date as string;
+      const businessId = req.business?.business_id;
+
+      if (isNaN(courierId)) {
+        throw createError(400, 'Неверный ID курьера');
+      }
+
+      if (!startDate || !endDate) {
+        throw createError(400, 'Необходимо указать start_date и end_date');
+      }
+
+      // Валидация и парсинг дат с поддержкой времени
+      const start = BusinessController.validateAndParseDate(startDate, false);
+      const end = BusinessController.validateAndParseDate(endDate, true);
+      
+      if (start > end) {
+        throw createError(400, 'Дата начала не может быть больше даты окончания');
+      }
+
+      // Получаем информацию о курьере
+      const courierInfo = await prisma.$queryRaw<any[]>`
+        SELECT 
+          c.courier_id,
+          c.login,
+          c.full_name,
+          c.name,
+          c.courier_type,
+          ct.name as city_name,
+          c.created_at
+        FROM couriers c
+        LEFT JOIN cities ct ON ct.city_id = c.city_id
+        WHERE c.courier_id = ${courierId}
+      `;
+
+      if (!courierInfo || courierInfo.length === 0) {
+        throw createError(404, 'Курьер не найден');
+      }
+
+      const courier = courierInfo[0];
+
+      // Получаем все заказы курьера со статусом 4 (доставлен) из последней записи order_status
+      let ordersQuery = `
+        SELECT 
+          o.order_id,
+          o.order_uuid,
+          o.delivery_price,
+          o.total_sum,
+          o.log_timestamp as order_created,
+          b.name as business_name,
+          b.address as business_address,
+          u.name as customer_name,
+          da.address as delivery_address,
+          os.status as current_status
+        FROM orders o
+        LEFT JOIN businesses b ON b.business_id = o.business_id
+        LEFT JOIN users u ON u.user_id = o.user_id
+        LEFT JOIN user_addresses da ON da.address_id = o.address_id
+        LEFT JOIN (
+          SELECT 
+            order_id, 
+            status,
+            ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY log_timestamp DESC) as rn
+          FROM order_status
+        ) os ON o.order_id = os.order_id AND os.rn = 1
+        WHERE o.courier_id = ? 
+          AND os.status = 4
+          AND o.log_timestamp BETWEEN ? AND ?
+      `;
+
+      const orderQueryParams: any[] = [courierId, start, end];
+
+      if (businessId) {
+        ordersQuery += ` AND o.business_id = ?`;
+        orderQueryParams.push(businessId);
+      }
+
+      ordersQuery += ` ORDER BY o.log_timestamp DESC`;
+
+      const courierOrders = await prisma.$queryRawUnsafe<any[]>(
+        ordersQuery, 
+        ...orderQueryParams
+      );
+
+      // Простая статистика
+      const totalDelivered = courierOrders.length;
+      const totalEarnings = courierOrders.reduce((sum, order) => sum + Number(order.delivery_price), 0);
+      const totalOrderValue = courierOrders.reduce((sum, order) => sum + Number(order.total_sum), 0);
+
+      res.json({
+        success: true,
+        data: {
+          courier_info: {
+            courier_id: courier.courier_id,
+            login: courier.login,
+            full_name: courier.full_name,
+            name: courier.name,
+            courier_type: courier.courier_type,
+            city_name: courier.city_name,
+            member_since: courier.created_at
+          },
+          period: {
+            start_date: startDate,
+            end_date: endDate
+          },
+          statistics: {
+            total_delivered_orders: totalDelivered,
+            total_earnings: totalEarnings,
+            total_order_value: totalOrderValue,
+            avg_delivery_price: totalDelivered > 0 ? Math.round(totalEarnings / totalDelivered) : 0
+          },
+          orders: courierOrders.map(order => ({
+            order_id: order.order_id,
+            order_uuid: order.order_uuid,
+            delivery_price: Number(order.delivery_price),
+            total_sum: Number(order.total_sum),
+            business_name: order.business_name,
+            business_address: order.business_address,
+            customer_name: order.customer_name,
+            delivery_address: order.delivery_address,
+            order_created: order.order_created
+          }))
+        },
+        message: `Курьер ${courier.full_name} доставил ${totalDelivered} заказов за период с ${startDate} по ${endDate}`
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Вспомогательный метод для получения названия статуса
+   */
+  private static getStatusName(status: number): string {
+    const statusNames: { [key: number]: string } = {
+      0: 'Новый заказ',
+      1: 'Принят магазином',
+      2: 'Готов к выдаче',
+      3: 'Доставляется',
+      4: 'Доставлен',
+      5: 'Отменен',
+      6: 'Ошибка платежа',
+      66: 'Не оплачен'
+    };
+    return statusNames[status] || 'Неизвестный статус';
   }
 }

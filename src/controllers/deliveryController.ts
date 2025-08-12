@@ -220,21 +220,38 @@ export class DeliveryController {
       // Рассчитываем стоимость доставки по расстоянию
       let delivery_price = 0;
       
-      if (delivery_rate?.base_distance_price) {
-        // Если есть базовая цена за расстояние, используем её
-        delivery_price = Number(delivery_rate.base_distance_price);
-      } else {
-        // Если нет настроек, используем фиксированную цену по умолчанию
-        delivery_price = 500; // 500 тенге по умолчанию
-        
-        // Дополнительная плата за каждый км сверх 5 км
-        const base_distance_default = 5000; // 5 км в метрах
-        if (distance > base_distance_default) {
-          const extra_distance = distance - base_distance_default;
-          const extra_km = Math.ceil(extra_distance / 1000);
-          delivery_price += extra_km * 100; // 100 тенге за каждый дополнительный км
+
+      const delivery_rate_details = await prisma.delivery_rate_details.findFirst({
+        where: { rate_id: delivery_rate?.delivery_rate_id,  condition_value: {gt: distance} },
+        select: {
+          price: true,
         }
+    });
+
+    if(distance < max_distance) {
+      if(distance > Number(delivery_rate?.base_distance)) {
+        // Если расстояние больше базового, используем цену за расстояние
+        delivery_price = (distance - Number(delivery_rate?.base_distance)) * Number(delivery_rate_details?.price) + Number(delivery_rate?.base_distance_price);
       }
+    }
+
+
+
+      // if (delivery_rate?.base_distance_price) {
+      //   // Если есть базовая цена за расстояние, используем её
+      //   delivery_price = Number(delivery_rate.base_distance_price);
+      // } else {
+      //   // Если нет настроек, используем фиксированную цену по умолчанию
+      //   delivery_price = 500; // 500 тенге по умолчанию
+        
+      //   // Дополнительная плата за каждый км сверх 5 км
+      //   const base_distance_default = 5000; // 5 км в метрах
+      //   if (distance > base_distance_default) {
+      //     const extra_distance = distance - base_distance_default;
+      //     const extra_km = Math.ceil(extra_distance / 1000);
+      //     delivery_price += extra_km * 100; // 100 тенге за каждый дополнительный км
+      //   }
+      // }
       
       return {
         in_zone: true,
@@ -387,8 +404,8 @@ export class DeliveryController {
         throw new Error('Бизнес не найден');
       }
 
-      // Рассчитываем расстояние по формуле Haversine
-      const distance = DeliveryController.calculateHaversineDistance(
+      // Рассчитываем расстояние через OSRM API
+      const distance = await DeliveryController.calculateOSRMDistance(
         lat, lon, business.lat, business.lon
       );
 
@@ -400,7 +417,35 @@ export class DeliveryController {
   }
 
   /**
-   * Расчет расстояния по формуле Haversine (в метрах)
+   * Расчет расстояния через OSRM API (в метрах)
+   */
+  static async calculateOSRMDistance(lat1: number, lon1: number, lat2: number, lon2: number): Promise<number> {
+    try {
+      const url = `https://routes.naliv.kz/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
+      
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`OSRM API error: ${response.status}`);
+      }
+      
+      const data: any = await response.json();
+      
+      if (data.code !== 'Ok' || !data.routes || data.routes.length === 0) {
+        throw new Error('OSRM: Маршрут не найден');
+      }
+      
+      // Возвращаем расстояние в метрах (OSRM возвращает в метрах)
+      return Math.round(data.routes[0].distance);
+      
+    } catch (error: any) {
+      console.error('Ошибка OSRM API, используем Haversine:', error.message);
+      // Fallback к формуле Haversine в случае ошибки
+      return DeliveryController.calculateHaversineDistance(lat1, lon1, lat2, lon2);
+    }
+  }
+
+  /**
+   * Расчет расстояния по формуле Haversine (fallback, в метрах)
    */
   static calculateHaversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371000; // Радиус Земли в метрах
@@ -426,8 +471,8 @@ export class DeliveryController {
     delivery_lon: number
   ): Promise<number | false> {
     try {
-      // Базовая проверка расстояния - если слишком далеко, доставка невозможна
-      const distance = DeliveryController.calculateHaversineDistance(
+      // Расчет расстояния через OSRM API для более точного результата
+      const distance = await DeliveryController.calculateOSRMDistance(
         business_lat, business_lon, delivery_lat, delivery_lon
       );
       

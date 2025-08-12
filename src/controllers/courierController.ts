@@ -933,6 +933,366 @@ export class CourierController {
   }
 
   /**
+   * Сохранение геолокации курьера
+   * POST /api/courier/location
+   * Body: { lat: number, lon: number }
+   */
+  static async updateLocation(req: CourierAuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.courier) {
+        return next(createError(401, 'Требуется авторизация курьера'));
+      }
+
+      const { lat, lon } = req.body;
+      const courier_id = req.courier.courier_id;
+
+      // Валидация входных данных
+      if (typeof lat !== 'number' || typeof lon !== 'number') {
+        return next(createError(400, 'Параметры lat и lon должны быть числами'));
+      }
+
+      // Проверяем валидность координат
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        return next(createError(400, 'Некорректные координаты. Широта: -90 до 90, Долгота: -180 до 180'));
+      }
+
+      // Проверяем, существует ли запись для данного курьера
+      const existingLocation = await prisma.$queryRaw<any[]>`
+        SELECT courier_id FROM courier_location WHERE courier_id = ${courier_id}
+      `;
+
+      if (existingLocation.length > 0) {
+        // Обновляем существующую запись
+        await prisma.$executeRaw`
+          UPDATE courier_location 
+          SET lat = ${lat}, lon = ${lon}, updated_at = NOW()
+          WHERE courier_id = ${courier_id}
+        `;
+      } else {
+        // Создаем новую запись
+        await prisma.$executeRaw`
+          INSERT INTO courier_location (courier_id, lat, lon, updated_at) 
+          VALUES (${courier_id}, ${lat}, ${lon}, NOW())
+        `;
+      }
+
+      // Получаем информацию о курьере для ответа
+      const courier = await prisma.couriers.findUnique({
+        where: { courier_id: courier_id },
+        select: {
+          courier_id: true,
+          login: true,
+          name: true,
+          full_name: true
+        }
+      });
+
+      res.json({
+        success: true,
+        data: {
+          courier_id: courier_id,
+          courier_name: courier?.full_name || courier?.name || courier?.login || 'Курьер',
+          location: {
+            lat: lat,
+            lon: lon,
+            updated_at: new Date()
+          }
+        },
+        message: 'Геолокация курьера сохранена'
+      });
+
+    } catch (error) {
+      console.error('Ошибка сохранения геолокации курьера:', error);
+      return next(createError(500, 'Ошибка сохранения геолокации'));
+    }
+  }
+
+  /**
+   * Получение текущей геолокации курьера
+   * GET /api/courier/location
+   */
+  static async getLocation(req: CourierAuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.courier) {
+        return next(createError(401, 'Требуется авторизация курьера'));
+      }
+
+      const courier_id = req.courier.courier_id;
+
+      // Получаем геолокацию курьера
+      const location = await prisma.$queryRaw<any[]>`
+        SELECT lat, lon, updated_at 
+        FROM courier_location 
+        WHERE courier_id = ${courier_id}
+      `;
+
+      if (!location || location.length === 0) {
+        return res.json({
+          success: true,
+          data: {
+            courier_id: courier_id,
+            location: null
+          },
+          message: 'Геолокация курьера не найдена'
+        });
+      }
+
+      const courierLocation = location[0];
+
+      res.json({
+        success: true,
+        data: {
+          courier_id: courier_id,
+          location: {
+            lat: Number(courierLocation.lat),
+            lon: Number(courierLocation.lon),
+            updated_at: courierLocation.updated_at
+          }
+        },
+        message: 'Текущая геолокация курьера'
+      });
+
+    } catch (error) {
+      console.error('Ошибка получения геолокации курьера:', error);
+      return next(createError(500, 'Ошибка получения геолокации'));
+    }
+  }
+
+  /**
+   * Получение доставленных заказов курьера за период
+   * GET /api/courier/orders/delivered?start_date=2024-01-01&end_date=2024-01-31
+   */
+  static async getDeliveredOrders(req: CourierAuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.courier) {
+        return next(createError(401, 'Требуется авторизация курьера'));
+      }
+
+      const courier_id = req.courier.courier_id;
+      const startDate = req.query.start_date as string;
+      const endDate = req.query.end_date as string;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+
+      if (!startDate || !endDate) {
+        return next(createError(400, 'Необходимо указать start_date и end_date'));
+      }
+
+      // Валидация и парсинг дат
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return next(createError(400, 'Неверный формат даты. Используйте YYYY-MM-DD или YYYY-MM-DD HH:mm:ss'));
+      }
+      
+      if (start > end) {
+        return next(createError(400, 'Дата начала не может быть больше даты окончания'));
+      }
+
+      // Если передана только дата без времени, устанавливаем время
+      if (startDate.length === 10) {
+        start.setHours(0, 0, 0, 0);
+      }
+      if (endDate.length === 10) {
+        end.setHours(23, 59, 59, 999);
+      }
+
+      const offset = (page - 1) * limit;
+
+      // Получаем заказы курьера со статусом 4 (доставлен) за период
+      const [orders, totalCount] = await Promise.all([
+        prisma.$queryRaw<any[]>`
+          SELECT DISTINCT o.* 
+          FROM orders o
+          INNER JOIN (
+            SELECT order_id, status, log_timestamp, ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY log_timestamp DESC) as rn
+            FROM order_status
+          ) os ON o.order_id = os.order_id AND os.rn = 1
+          WHERE o.courier_id = ${courier_id}
+          AND os.status = 4
+          AND o.log_timestamp BETWEEN ${start} AND ${end}
+          ORDER BY o.log_timestamp DESC
+          LIMIT ${limit} OFFSET ${offset}
+        `,
+        prisma.$queryRaw<{count: bigint}[]>`
+          SELECT COUNT(DISTINCT o.order_id) as count
+          FROM orders o
+          INNER JOIN (
+            SELECT order_id, status, ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY log_timestamp DESC) as rn
+            FROM order_status
+          ) os ON o.order_id = os.order_id AND os.rn = 1
+          WHERE o.courier_id = ${courier_id}
+          AND os.status = 4
+          AND o.log_timestamp BETWEEN ${start} AND ${end}
+        `
+      ]);
+
+      const total = Number(totalCount[0]?.count || 0);
+
+      if (orders.length === 0) {
+        return res.json({
+          success: true,
+          data: {
+            orders: [],
+            period: {
+              start_date: startDate,
+              end_date: endDate
+            },
+            statistics: {
+              total_delivered: 0,
+              total_earnings: 0,
+              avg_delivery_price: 0
+            },
+            pagination: {
+              page,
+              limit,
+              total: 0,
+              totalPages: 0,
+              hasNext: false,
+              hasPrev: false
+            }
+          },
+          message: `Нет доставленных заказов за период с ${startDate} по ${endDate}`
+        });
+      }
+
+      // Получаем дополнительную информацию для каждого заказа
+      const orderIds = orders.map(order => order.order_id);
+
+      const [businesses, users, addresses, orderCosts] = await Promise.all([
+        prisma.businesses.findMany({
+          where: { business_id: { in: orders.map(o => o.business_id) } },
+          select: {
+            business_id: true,
+            name: true,
+            address: true,
+            city: true,
+            lat: true,
+            lon: true
+          }
+        }),
+        prisma.user.findMany({
+          where: { user_id: { in: orders.map(o => o.user_id) } },
+          select: {
+            user_id: true,
+            name: true,
+            first_name: true,
+            last_name: true
+          }
+        }),
+        prisma.user_addreses.findMany({
+          where: { address_id: { in: orders.map(o => o.address_id).filter(id => id) } },
+          select: {
+            address_id: true,
+            name: true,
+            address: true,
+            lat: true,
+            lon: true,
+            apartment: true,
+            entrance: true,
+            floor: true,
+            other: true
+          }
+        }),
+        prisma.orders_cost.findMany({
+          where: { order_id: { in: orderIds } }
+        })
+      ]);
+
+      // Создаем мапы для быстрого доступа
+      const businessesMap = new Map(businesses.map(b => [b.business_id, b]));
+      const usersMap = new Map(users.map(u => [u.user_id, u]));
+      const addressesMap = new Map(addresses.map(a => [a.address_id, a]));
+      const orderCostsMap = new Map(orderCosts.map(c => [Number(c.order_id), c]));
+
+      // Форматируем заказы и считаем статистику
+      let totalEarnings = 0;
+      const formattedOrders = orders.map(order => {
+        const business = businessesMap.get(order.business_id);
+        const user = usersMap.get(order.user_id);
+        const address = addressesMap.get(order.address_id);
+        const cost = orderCostsMap.get(order.order_id);
+
+        const deliveryPrice = Number(order.delivery_price || 0);
+        totalEarnings += deliveryPrice;
+
+        return {
+          order_id: order.order_id,
+          order_uuid: order.order_uuid,
+          business: business ? {
+            business_id: business.business_id,
+            name: business.name,
+            address: business.address,
+            coordinates: {
+              lat: business.lat,
+              lon: business.lon
+            }
+          } : null,
+          user: user ? {
+            user_id: user.user_id,
+            name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь'
+          } : null,
+          delivery_address: address ? {
+            address_id: address.address_id,
+            name: address.name,
+            address: address.address,
+            coordinates: {
+              lat: address.lat,
+              lon: address.lon
+            },
+            details: {
+              apartment: address.apartment,
+              entrance: address.entrance,
+              floor: address.floor,
+              comment: address.other
+            }
+          } : null,
+          delivery_price: deliveryPrice,
+          total_order_cost: (cost ? Number(cost.cost) : 0) + deliveryPrice + (cost ? Number(cost.service_fee) : 0),
+          delivery_date: order.delivery_date,
+          order_created: order.log_timestamp,
+          status: {
+            status: 4,
+            status_name: 'Доставлен'
+          }
+        };
+      });
+
+      const totalPages = Math.ceil(total / limit);
+
+      res.json({
+        success: true,
+        data: {
+          orders: formattedOrders,
+          period: {
+            start_date: startDate,
+            end_date: endDate
+          },
+          statistics: {
+            total_delivered: total,
+            total_earnings: totalEarnings,
+            avg_delivery_price: total > 0 ? Math.round(totalEarnings / total) : 0
+          },
+          pagination: {
+            page,
+            limit,
+            total,
+            totalPages,
+            hasNext: page < totalPages,
+            hasPrev: page > 1
+          }
+        },
+        message: `Найдено ${total} доставленных заказов за период с ${startDate} по ${endDate}`
+      });
+
+    } catch (error) {
+      console.error('Ошибка получения доставленных заказов курьера:', error);
+      return next(createError(500, 'Ошибка получения доставленных заказов'));
+    }
+  }
+
+  /**
    * Получение названия статуса по коду
    */
   private static getStatusName(status: number): string {

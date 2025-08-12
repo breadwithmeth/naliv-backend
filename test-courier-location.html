@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест API геолокации курьера</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], input[type="password"], input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            border-color: #4CAF50;
+            outline: none;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .location-btn {
+            background-color: #2196F3;
+        }
+        .location-btn:hover {
+            background-color: #1976D2;
+        }
+        .auto-btn {
+            background-color: #ff9800;
+        }
+        .auto-btn:hover {
+            background-color: #f57c00;
+        }
+        .response {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .auth-status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .auth-success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .auth-error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📍 Тест API геолокации курьера</h1>
+        
+        <!-- Статус авторизации -->
+        <div id="authStatus" class="auth-status auth-error">
+            Не авторизован
+        </div>
+
+        <!-- Секция авторизации -->
+        <div class="section">
+            <h3>1. Авторизация курьера</h3>
+            <div class="form-group">
+                <label for="login">Логин курьера:</label>
+                <input type="text" id="login" value="courier_test" placeholder="Введите логин">
+            </div>
+            <div class="form-group">
+                <label for="password">Пароль:</label>
+                <input type="password" id="password" value="test123" placeholder="Введите пароль">
+            </div>
+            <button onclick="loginCourier()">🔑 Войти</button>
+            <button onclick="registerCourier()">📝 Регистрация</button>
+        </div>
+
+        <!-- Секция геолокации -->
+        <div class="section">
+            <h3>2. Управление геолокацией</h3>
+            <div class="form-group">
+                <label for="lat">Широта (lat):</label>
+                <input type="number" id="lat" value="43.256" step="0.000001" placeholder="43.256">
+            </div>
+            <div class="form-group">
+                <label for="lon">Долгота (lon):</label>
+                <input type="number" id="lon" value="76.945" step="0.000001" placeholder="76.945">
+            </div>
+            <button onclick="updateLocation()" id="updateLocationBtn" class="location-btn" disabled>📍 Сохранить геолокацию</button>
+            <button onclick="getLocation()" id="getLocationBtn" class="location-btn" disabled>🗺️ Получить геолокацию</button>
+            <button onclick="getCurrentPosition()" id="getCurrentPosBtn" class="auto-btn" disabled>🌐 Определить автоматически</button>
+        </div>
+
+        <!-- Ответ сервера -->
+        <div id="response"></div>
+    </div>
+
+    <script>
+        const BASE_URL = 'http://localhost:3000/api';
+        let authToken = localStorage.getItem('courierToken');
+
+        // Обновляем статус авторизации при загрузке
+        window.onload = function() {
+            updateAuthStatus();
+        };
+
+        function updateAuthStatus() {
+            const authStatusDiv = document.getElementById('authStatus');
+            const buttons = ['updateLocationBtn', 'getLocationBtn', 'getCurrentPosBtn'];
+            
+            if (authToken) {
+                authStatusDiv.textContent = '✅ Авторизован';
+                authStatusDiv.className = 'auth-status auth-success';
+                buttons.forEach(btnId => {
+                    document.getElementById(btnId).disabled = false;
+                });
+            } else {
+                authStatusDiv.textContent = '❌ Не авторизован';
+                authStatusDiv.className = 'auth-status auth-error';
+                buttons.forEach(btnId => {
+                    document.getElementById(btnId).disabled = true;
+                });
+            }
+        }
+
+        function showResponse(data, isError = false) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.className = 'response ' + (isError ? 'error' : 'success');
+            responseDiv.textContent = JSON.stringify(data, null, 2);
+        }
+
+        function showInfo(message) {
+            const responseDiv = document.getElementById('response');
+            responseDiv.className = 'response info';
+            responseDiv.textContent = message;
+        }
+
+        async function makeRequest(endpoint, method = 'GET', body = null, requireAuth = false) {
+            try {
+                showInfo(`Отправляка запрос: ${method} ${endpoint}...`);
+                
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+
+                if (requireAuth && authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+
+                const config = {
+                    method,
+                    headers
+                };
+
+                if (body) {
+                    config.body = JSON.stringify(body);
+                }
+
+                const response = await fetch(`${BASE_URL}${endpoint}`, config);
+                const data = await response.json();
+
+                if (response.ok) {
+                    showResponse(data);
+                    return data;
+                } else {
+                    showResponse(data, true);
+                    return null;
+                }
+            } catch (error) {
+                showResponse({ error: error.message }, true);
+                return null;
+            }
+        }
+
+        async function registerCourier() {
+            const login = document.getElementById('login').value;
+            const password = document.getElementById('password').value;
+
+            if (!login || !password) {
+                showResponse({ error: 'Введите логин и пароль' }, true);
+                return;
+            }
+
+            const data = await makeRequest('/courier/auth/register', 'POST', {
+                login: login,
+                password: password,
+                full_name: `Курьер ${login}`,
+                name: login,
+                courier_type: 1
+            });
+
+            if (data && data.success) {
+                authToken = data.data.token;
+                localStorage.setItem('courierToken', authToken);
+                updateAuthStatus();
+            }
+        }
+
+        async function loginCourier() {
+            const login = document.getElementById('login').value;
+            const password = document.getElementById('password').value;
+
+            if (!login || !password) {
+                showResponse({ error: 'Введите логин и пароль' }, true);
+                return;
+            }
+
+            const data = await makeRequest('/courier/auth/login', 'POST', {
+                login: login,
+                password: password
+            });
+
+            if (data && data.success) {
+                authToken = data.data.token;
+                localStorage.setItem('courierToken', authToken);
+                updateAuthStatus();
+            }
+        }
+
+        async function updateLocation() {
+            const lat = parseFloat(document.getElementById('lat').value);
+            const lon = parseFloat(document.getElementById('lon').value);
+            
+            if (isNaN(lat) || isNaN(lon)) {
+                showResponse({ error: 'Введите корректные координаты' }, true);
+                return;
+            }
+
+            if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+                showResponse({ error: 'Некорректные координаты. Широта: -90 до 90, Долгота: -180 до 180' }, true);
+                return;
+            }
+
+            await makeRequest('/courier/location', 'POST', { lat, lon }, true);
+        }
+
+        async function getLocation() {
+            await makeRequest('/courier/location', 'GET', null, true);
+        }
+
+        async function getCurrentPosition() {
+            if (!navigator.geolocation) {
+                showResponse({ error: 'Геолокация не поддерживается браузером' }, true);
+                return;
+            }
+
+            showInfo('Определение местоположения...');
+
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    
+                    document.getElementById('lat').value = lat.toFixed(6);
+                    document.getElementById('lon').value = lon.toFixed(6);
+                    
+                    showResponse({
+                        success: true,
+                        message: 'Местоположение определено',
+                        coordinates: {
+                            lat: lat,
+                            lon: lon,
+                            accuracy: position.coords.accuracy + ' метров'
+                        },
+                        note: 'Координаты заполнены в поля. Нажмите "Сохранить геолокацию" для отправки на сервер.'
+                    });
+                },
+                (error) => {
+                    let errorMessage = 'Ошибка определения местоположения';
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMessage = 'Доступ к геолокации запрещен пользователем';
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMessage = 'Информация о местоположении недоступна';
+                            break;
+                        case error.TIMEOUT:
+                            errorMessage = 'Превышено время ожидания запроса местоположения';
+                            break;
+                    }
+                    showResponse({ error: errorMessage }, true);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        }
+    </script>
+</body>
+</html>
