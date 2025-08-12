@@ -619,12 +619,11 @@ export class BusinessController {
    * Детальный отчет по конкретному курьеру за период
    * Использует последнюю запись из таблицы order_status для определения статуса заказа
    */
-  static async getCourierDetailedReport(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+  static async getCourierDetailedReport(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const courierId = parseInt(req.params.courierId);
       const startDate = req.query.start_date as string;
       const endDate = req.query.end_date as string;
-      const businessId = req.business?.business_id;
 
       if (isNaN(courierId)) {
         throw createError(400, 'Неверный ID курьера');
@@ -694,10 +693,7 @@ export class BusinessController {
 
       const orderQueryParams: any[] = [courierId, start, end];
 
-      if (businessId) {
-        ordersQuery += ` AND o.business_id = ?`;
-        orderQueryParams.push(businessId);
-      }
+      
 
       ordersQuery += ` ORDER BY o.log_timestamp DESC`;
 

@@ -7,7 +7,7 @@ const router = Router();
 // GET /api/businesses - Получить все бизнесы
 // Query params: ?page=1&limit=20&city_id=1&search=магазин
 router.get('/', BusinessController.getAllBusinesses);
-router.get('/discount-cards', authenticateBusiness, BusinessController.getDiscountCards);
+router.get('/discount-cards', BusinessController.getDiscountCards);
 
 // GET /api/businesses/:id - Получить бизнес по ID
 router.get('/:id', BusinessController.getBusinessById);
