@@ -749,7 +749,7 @@ export class BusinessController {
   }
 
   /**
-   * Получить все дисконтные карты пользователей
+   * Получить дисконтные карты пользователей, созданные за последнюю неделю
    * GET /api/business/discount-cards
    */
   static async getDiscountCards(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
@@ -759,7 +759,7 @@ export class BusinessController {
       const search = req.query.search as string;
       const offset = (page - 1) * limit;
 
-      // Базовый SQL запрос как указан в требованиях
+      // Базовый SQL запрос для пользователей с картами, созданными за последнюю неделю
       let sqlQuery = `
         SELECT 
           u.user_id,
@@ -771,12 +771,13 @@ export class BusinessController {
           u.first_name,
           u.last_name
         FROM users u 
-        LEFT JOIN bonus_cards bc ON bc.bonus_card_id = ( 
+        INNER JOIN bonus_cards bc ON bc.bonus_card_id = ( 
           SELECT MAX(bonus_card_id) 
           FROM bonus_cards 
           WHERE bonus_cards.user_id = u.user_id 
         ) 
-        WHERE u.user_id > 32524
+        WHERE u.user_id > 1
+          AND bc.log_timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)
       `;
 
       const queryParams: any[] = [];
@@ -856,7 +857,7 @@ export class BusinessController {
             search: search || null
           }
         },
-        message: `Найдено ${totalCount} пользователей${search ? ` по запросу "${search}"` : ''}`
+        message: `Найдено ${totalCount} пользователей с картами за последнюю неделю${search ? ` по запросу "${search}"` : ''}`
       });
     } catch (error) {
       console.error('Ошибка получения дисконтных карт:', error);
