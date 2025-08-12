@@ -776,7 +776,7 @@ export class BusinessController {
           FROM bonus_cards 
           WHERE bonus_cards.user_id = u.user_id 
         ) 
-        WHERE u.user_id > 31481
+        WHERE u.user_id > 32524
       `;
 
       const queryParams: any[] = [];
