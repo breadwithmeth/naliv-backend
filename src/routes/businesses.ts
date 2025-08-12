@@ -7,6 +7,7 @@ const router = Router();
 // GET /api/businesses - Получить все бизнесы
 // Query params: ?page=1&limit=20&city_id=1&search=магазин
 router.get('/', BusinessController.getAllBusinesses);
+router.get('/discount-cards', authenticateBusiness, BusinessController.getDiscountCards);
 
 // GET /api/businesses/:id - Получить бизнес по ID
 router.get('/:id', BusinessController.getBusinessById);
@@ -27,5 +28,9 @@ router.get('/reports/couriers', authenticateBusiness, BusinessController.getCour
 // Query params: ?start_date=2025-08-01&end_date=2025-08-10
 // Требует авторизации бизнеса, business_id берется из middleware
 router.get('/reports/courier/:courierId', authenticateBusiness, BusinessController.getCourierDetailedReport);
+
+// GET /api/businesses/discount-cards - Получить все дисконтные карты пользователей
+// Query params: ?page=1&limit=50&search=user123
+// Требует авторизации бизнеса
 
 export default router;

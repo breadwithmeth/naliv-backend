@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест API дисконтных карт</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #555;
+            border-bottom: 2px solid #4CAF50;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"], input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            border-color: #4CAF50;
+            outline: none;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button.clear {
+            background-color: #ff9800;
+        }
+        button.clear:hover {
+            background-color: #e68900;
+        }
+        #response {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 15px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+            max-height: 600px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #4CAF50;
+        }
+        .flex-row {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .flex-row .form-group {
+            flex: 1;
+            min-width: 200px;
+        }
+        .statistics-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 10px 0;
+        }
+        .statistics-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 18px;
+        }
+        .statistics-card .number {
+            font-size: 24px;
+            font-weight: bold;
+        }
+        .card-item {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 10px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .card-header {
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        .card-detail {
+            color: #666;
+            margin: 5px 0;
+        }
+        .has-card {
+            border-left: 4px solid #4CAF50;
+        }
+        .no-card {
+            border-left: 4px solid #ff9800;
+        }
+        .card-uuid {
+            font-family: monospace;
+            background-color: #f1f1f1;
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💳 Тест API дисконтных карт</h1>
+        
+        <div class="section" style="background-color: #e8f5e8; border-left: 4px solid #4CAF50;">
+            <h3>📋 API дисконтных карт пользователей</h3>
+            <p>Эндпоинт для получения информации о всех дисконтных картах пользователей:</p>
+            <ul>
+                <li><strong>Все пользователи</strong> - показывает всех пользователей с ID > 1</li>
+                <li><strong>Дисконтные имена</strong> - генерирует имя вида 'disc' + user_id</li>
+                <li><strong>Последние карты</strong> - для каждого пользователя берется последняя бонусная карта</li>
+                <li><strong>Поиск</strong> - поиск по логину, имени, фамилии или UUID карты</li>
+                <li><strong>Статистика</strong> - покрытие пользователей картами</li>
+                <li><strong>Пагинация</strong> - поддержка постраничного просмотра</li>
+            </ul>
+        </div>
+        
+        <!-- Авторизация бизнеса -->
+        <div class="section">
+            <h2>🔑 Авторизация бизнеса</h2>
+            <div class="form-group">
+                <label for="businessToken">Токен бизнеса:</label>
+                <input type="text" id="businessToken" placeholder="Введите токен авторизации бизнеса">
+            </div>
+        </div>
+
+        <!-- Параметры запроса -->
+        <div class="section">
+            <h2>🔍 Параметры поиска</h2>
+            <div class="flex-row">
+                <div class="form-group">
+                    <label for="search">Поиск:</label>
+                    <input type="text" id="search" placeholder="Логин, имя, фамилия или UUID карты">
+                </div>
+                <div class="form-group">
+                    <label for="page">Страница:</label>
+                    <input type="number" id="page" value="1" min="1">
+                </div>
+                <div class="form-group">
+                    <label for="limit">Лимит на страницу:</label>
+                    <input type="number" id="limit" value="20" min="1" max="200">
+                </div>
+            </div>
+            
+            <button onclick="getDiscountCards()">💳 Получить дисконтные карты</button>
+            <button onclick="clearResponse()" class="clear">🧹 Очистить ответ</button>
+        </div>
+
+        <!-- Ответ от сервера -->
+        <div class="section">
+            <h2>📄 Ответ сервера</h2>
+            <div id="response">Нажмите кнопку для выполнения запроса...</div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000';
+
+        // Получение дисконтных карт
+        async function getDiscountCards() {
+            const token = document.getElementById('businessToken').value;
+            const search = document.getElementById('search').value;
+            const page = document.getElementById('page').value;
+            const limit = document.getElementById('limit').value;
+
+            if (!token) {
+                showResponse('❌ Ошибка: Введите токен бизнеса', 'error');
+                return;
+            }
+
+            try {
+                showResponse('🔄 Загрузка дисконтных карт...', 'info');
+
+                // Формируем параметры запроса
+                const params = new URLSearchParams({
+                    page: page,
+                    limit: limit
+                });
+
+                if (search) {
+                    params.append('search', search);
+                }
+
+                const response = await fetch(`${API_BASE_URL}/api/businesses/discount-cards?${params}`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    formatDiscountCardsResponse(data);
+                } else {
+                    showResponse(`❌ Ошибка ${response.status}: ${data.message || data.error?.message || 'Неизвестная ошибка'}`, 'error');
+                }
+            } catch (error) {
+                showResponse(`❌ Ошибка сети: ${error.message}`, 'error');
+            }
+        }
+
+        // Форматирование ответа с дисконтными картами
+        function formatDiscountCardsResponse(data) {
+            let html = `✅ <strong>Дисконтные карты получены</strong>\n\n`;
+            
+            // Статистика
+            if (data.data.statistics) {
+                const stats = data.data.statistics;
+                html += `📊 <strong>СТАТИСТИКА:</strong>\n`;
+                html += `• Всего пользователей: ${stats.total_users}\n`;
+                html += `• Пользователей с картами: ${stats.users_with_cards}\n`;
+                html += `• Пользователей без карт: ${stats.users_without_cards}\n`;
+                html += `• Покрытие картами: ${stats.cards_coverage}%\n\n`;
+            }
+
+            // Пагинация
+            if (data.data.pagination) {
+                const p = data.data.pagination;
+                html += `📄 <strong>ПАГИНАЦИЯ:</strong> Страница ${p.current_page}/${p.total_pages}, показано ${data.data.discount_cards.length} из ${p.total}\n\n`;
+            }
+
+            // Фильтры
+            if (data.data.filters && data.data.filters.search) {
+                html += `🔍 <strong>ПОИСК:</strong> "${data.data.filters.search}"\n\n`;
+            }
+
+            // Дисконтные карты
+            if (data.data.discount_cards && data.data.discount_cards.length > 0) {
+                html += `💳 <strong>ДИСКОНТНЫЕ КАРТЫ (${data.data.discount_cards.length}):</strong>\n\n`;
+                
+                data.data.discount_cards.forEach((card, index) => {
+                    html += `${index + 1}. ${card.has_card ? '✅' : '❌'} Пользователь #${card.user_id}\n`;
+                    html += `   👤 Логин: ${card.login || 'не указан'}\n`;
+                    html += `   🏷️ Дисконтное имя: ${card.discount_name}\n`;
+                    html += `   👤 Полное имя: ${card.user_info.full_name}\n`;
+                    
+                    if (card.has_card) {
+                        html += `   💳 UUID карты: ${card.card_uuid}\n`;
+                        if (card.card_created) {
+                            html += `   📅 Карта создана: ${new Date(card.card_created).toLocaleString('ru-RU')}\n`;
+                        }
+                    } else {
+                        html += `   ❌ Карта отсутствует\n`;
+                    }
+                    
+                    html += `\n`;
+                });
+            } else {
+                html += `💳 <strong>ДИСКОНТНЫЕ КАРТЫ:</strong> Не найдены\n\n`;
+            }
+
+            html += `💬 <strong>Сообщение:</strong> ${data.message}`;
+
+            showResponse(html, 'success');
+        }
+
+        // Отображение ответа
+        function showResponse(content, type = 'info') {
+            const responseDiv = document.getElementById('response');
+            responseDiv.textContent = content;
+            responseDiv.className = type;
+        }
+
+        // Очистка ответа
+        function clearResponse() {
+            showResponse('Нажмите кнопку для выполнения запроса...', 'info');
+        }
+    </script>
+</body>
+</html>

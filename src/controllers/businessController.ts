@@ -753,6 +753,122 @@ export class BusinessController {
   }
 
   /**
+   * Получить все дисконтные карты пользователей
+   * GET /api/business/discount-cards
+   */
+  static async getDiscountCards(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const search = req.query.search as string;
+      const offset = (page - 1) * limit;
+
+      // Базовый SQL запрос как указан в требованиях
+      let sqlQuery = `
+        SELECT 
+          u.user_id,
+          u.login, 
+          CONCAT('disc', u.user_id) AS name, 
+          bc.card_uuid,
+          bc.log_timestamp as card_created,
+          u.name as user_name,
+          u.first_name,
+          u.last_name
+        FROM users u 
+        LEFT JOIN bonus_cards bc ON bc.bonus_card_id = ( 
+          SELECT MAX(bonus_card_id) 
+          FROM bonus_cards 
+          WHERE bonus_cards.user_id = u.user_id 
+        ) 
+        WHERE u.user_id > 1
+      `;
+
+      const queryParams: any[] = [];
+
+      // Добавляем поиск если указан
+      if (search) {
+        sqlQuery += ` AND (
+          u.login LIKE ? OR 
+          u.name LIKE ? OR 
+          u.first_name LIKE ? OR 
+          u.last_name LIKE ? OR
+          bc.card_uuid LIKE ?
+        )`;
+        const searchPattern = `%${search}%`;
+        queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern, searchPattern);
+      }
+
+      sqlQuery += ` ORDER BY u.user_id ASC`;
+
+      // Для подсчета общего количества
+      const countQuery = sqlQuery.replace(
+        'SELECT u.user_id, u.login, CONCAT(\'disc\', u.user_id) AS name, bc.card_uuid, bc.log_timestamp as card_created, u.name as user_name, u.first_name, u.last_name',
+        'SELECT COUNT(*) as total'
+      ).replace('ORDER BY u.user_id ASC', '');
+
+      // Добавляем пагинацию
+      sqlQuery += ` LIMIT ? OFFSET ?`;
+      queryParams.push(limit, offset);
+
+      // Выполняем запросы параллельно
+      const [discountCards, totalCountResult] = await Promise.all([
+        prisma.$queryRawUnsafe<any[]>(sqlQuery, ...queryParams),
+        prisma.$queryRawUnsafe<any[]>(countQuery, ...queryParams.slice(0, -2)) // убираем limit и offset для подсчета
+      ]);
+
+      const totalCount = Number(totalCountResult[0]?.total || 0);
+
+      // Форматируем результат
+      const formattedCards = discountCards.map(card => ({
+        user_id: card.user_id,
+        login: card.login,
+        discount_name: card.name, // 'disc' + user_id
+        card_uuid: card.card_uuid,
+        card_created: card.card_created,
+        user_info: {
+          name: card.user_name,
+          first_name: card.first_name,
+          last_name: card.last_name,
+          full_name: card.user_name || `${card.first_name || ''} ${card.last_name || ''}`.trim() || card.login || `Пользователь ${card.user_id}`
+        },
+        has_card: !!card.card_uuid
+      }));
+
+      // Статистика
+      const cardsWithDiscount = formattedCards.filter(card => card.has_card).length;
+      const cardsWithoutDiscount = formattedCards.length - cardsWithDiscount;
+
+      res.json({
+        success: true,
+        data: {
+          discount_cards: formattedCards,
+          statistics: {
+            total_users: totalCount,
+            users_with_cards: cardsWithDiscount,
+            users_without_cards: cardsWithoutDiscount,
+            cards_coverage: totalCount > 0 ? Math.round((cardsWithDiscount / totalCount) * 100) : 0
+          },
+          pagination: {
+            current_page: page,
+            per_page: limit,
+            total: totalCount,
+            total_pages: Math.ceil(totalCount / limit),
+            has_next: page < Math.ceil(totalCount / limit),
+            has_prev: page > 1
+          },
+          filters: {
+            search: search || null
+          }
+        },
+        message: `Найдено ${totalCount} пользователей${search ? ` по запросу "${search}"` : ''}`
+      });
+    } catch (error) {
+      console.error('Ошибка получения дисконтных карт:', error);
+      next(createError(500, 'Ошибка получения дисконтных карт'));
+    }
+  }
+
+  /**
    * Вспомогательный метод для получения названия статуса
    */
   private static getStatusName(status: number): string {
