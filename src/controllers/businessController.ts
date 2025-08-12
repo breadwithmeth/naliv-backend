@@ -755,7 +755,7 @@ export class BusinessController {
   static async getDiscountCards(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
       const page = parseInt(req.query.page as string) || 1;
-      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 2000);
       const search = req.query.search as string;
       const offset = (page - 1) * limit;
 
@@ -776,7 +776,7 @@ export class BusinessController {
           FROM bonus_cards 
           WHERE bonus_cards.user_id = u.user_id 
         ) 
-        WHERE u.user_id > 1
+        WHERE u.user_id > 26628
       `;
 
       const queryParams: any[] = [];
