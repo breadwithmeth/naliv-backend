@@ -14,7 +14,8 @@ export const getUserBonuses = async (req: AuthRequest, res: Response) => {
 
     // Получаем бонусную карту пользователя
     const bonusCard = await prisma.bonus_cards.findFirst({
-      where: { user_id: userId }
+      where: { user_id: userId },
+      orderBy: { bonus_card_id: 'desc' },
     });
 
     // Получаем последнюю запись бонусов пользователя (текущий баланс)
