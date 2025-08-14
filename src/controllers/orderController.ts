@@ -905,10 +905,14 @@ export class OrderController {
       sumBeforeDelivery += Number(option.price || 0) * Number(option.amount || 0);
     }
 
+
     // Получаем стоимость доставки
     const order = await tx.orders.findUnique({
       where: { order_id: orderId }
     });
+
+        sumBeforeDelivery -= order.bonus || 0; // Вычитаем бонусы из суммы до доставки
+
 
     const deliveryPrice = Number(order?.delivery_price || 0);
     const totalSum = sumBeforeDelivery + deliveryPrice;
