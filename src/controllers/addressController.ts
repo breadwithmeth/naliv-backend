@@ -24,7 +24,7 @@ export class AddressController {
 
       // Поиск через Nominatim
       try {
-        const endpoint = 'http://68.183.23.112:8080/search.php';
+        const endpoint = 'https://geocode.naliv.kz/search.php';
         const params = {
           q: query as string,
           addressdetails: '1',
@@ -479,7 +479,7 @@ export class AddressController {
       if (!lat || !lon || isNaN(Number(lat)) || isNaN(Number(lon))) {
         return next(createError(400, 'Параметры lat и lon обязателены и должны быть числами'));
       }
-      const endpoint = 'http://68.183.23.112:8080/reverse.php';
+      const endpoint = 'https://geocode.naliv.kz/reverse.php';
       const params = {
         lat: lat as string,
         lon: lon as string,

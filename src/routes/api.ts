@@ -4,6 +4,7 @@ import businessRoutes from './businesses';
 import authRoutes from './auth';
 import orderRoutes from './orders';
 import employeeAuthRoutes from './employeeAuth';
+// import employeeRoutes from './employee';
 import categoryRoutes from './categories';
 import deliveryRoutes from './delivery';
 import addressRoutes from './addresses';
@@ -36,6 +37,7 @@ router.get('/', (req, res) => {
       bonuses: '/api/bonuses',
       notifications: '/api/notifications',
       employee_auth: '/api/employee/auth',
+      employee: '/api/employee',
       courier_auth: '/api/courier/auth',
       courier: '/api/courier',
       health: '/health'
@@ -96,6 +98,7 @@ router.use('/user', userCardsRoutes);
 router.use('/bonuses', bonusRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/employee/auth', employeeAuthRoutes);
+// router.use('/employee', employeeRoutes);
 router.use('/courier/auth', courierAuthRoutes);
 router.use('/courier', courierRoutes);
 

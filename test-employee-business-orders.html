@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Тест Employee Business Orders API</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, select, button {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .form-row {
+            display: flex;
+            gap: 15px;
+        }
+        .form-row .form-group {
+            flex: 1;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 12px;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .order-card {
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .order-status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            color: white;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-0 { background-color: #6c757d; }
+        .status-1 { background-color: #ffc107; color: #000; }
+        .status-2 { background-color: #17a2b8; }
+        .status-3 { background-color: #fd7e14; }
+        .status-4 { background-color: #28a745; }
+        .status-5 { background-color: #dc3545; }
+        .status-6 { background-color: #e83e8c; }
+        .status-66 { background-color: #6f42c1; }
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .pagination button {
+            width: auto;
+            padding: 8px 12px;
+        }
+        .statistics {
+            background: #e7f3ff;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 10px;
+        }
+        .stat-item {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏢 Тест Employee Business Orders API</h1>
+        
+        <form id="businessOrdersForm">
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="employeeToken">Employee Token:</label>
+                    <input type="password" id="employeeToken" placeholder="Введите токен сотрудника" required>
+                </div>
+                <div class="form-group">
+                    <label for="businessId">Business ID:</label>
+                    <input type="number" id="businessId" placeholder="ID бизнеса" required>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="page">Страница:</label>
+                    <input type="number" id="page" value="1" min="1">
+                </div>
+                <div class="form-group">
+                    <label for="limit">Лимит:</label>
+                    <select id="limit">
+                        <option value="10">10</option>
+                        <option value="20" selected>20</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="dateFrom">Дата от:</label>
+                    <input type="date" id="dateFrom">
+                </div>
+                <div class="form-group">
+                    <label for="dateTo">Дата до:</label>
+                    <input type="date" id="dateTo">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="status">Статус заказа:</label>
+                <select id="status">
+                    <option value="">Все статусы</option>
+                    <option value="0">Новый заказ</option>
+                    <option value="1">Принят магазином</option>
+                    <option value="2">Готов к выдаче</option>
+                    <option value="3">Доставляется</option>
+                    <option value="4">Доставлен</option>
+                    <option value="5">Отменен</option>
+                    <option value="6">Ошибка платежа</option>
+                    <option value="66">Не оплачен</option>
+                </select>
+            </div>
+
+            <button type="submit">🔍 Получить заказы бизнеса</button>
+        </form>
+
+        <div id="result"></div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000/api';
+        
+        document.getElementById('businessOrdersForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const resultDiv = document.getElementById('result');
+            const submitButton = e.target.querySelector('button[type="submit"]');
+            
+            // Показываем индикатор загрузки
+            submitButton.disabled = true;
+            submitButton.textContent = '⏳ Загрузка...';
+            resultDiv.innerHTML = '<div class="info">Загружаем заказы бизнеса...</div>';
+            
+            try {
+                const formData = new FormData(e.target);
+                const employeeToken = document.getElementById('employeeToken').value;
+                const businessId = document.getElementById('businessId').value;
+                const page = document.getElementById('page').value;
+                const limit = document.getElementById('limit').value;
+                const dateFrom = document.getElementById('dateFrom').value;
+                const dateTo = document.getElementById('dateTo').value;
+                const status = document.getElementById('status').value;
+                
+                if (!employeeToken || !businessId) {
+                    throw new Error('Employee Token и Business ID обязательны');
+                }
+                
+                // Формируем URL с параметрами
+                const params = new URLSearchParams();
+                if (page) params.append('page', page);
+                if (limit) params.append('limit', limit);
+                if (dateFrom) params.append('date_from', dateFrom);
+                if (dateTo) params.append('date_to', dateTo);
+                if (status) params.append('status', status);
+                
+                const url = `${API_BASE_URL}/employee/business-orders/${businessId}?${params.toString()}`;
+                
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${employeeToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.success) {
+                    displaySuccessResult(data);
+                } else {
+                    displayErrorResult(data);
+                }
+                
+            } catch (error) {
+                displayErrorResult({ 
+                    success: false, 
+                    error: { 
+                        message: error.message,
+                        statusCode: 500
+                    } 
+                });
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = '🔍 Получить заказы бизнеса';
+            }
+        });
+        
+        function displaySuccessResult(data) {
+            const resultDiv = document.getElementById('result');
+            
+            let html = `<div class="success">✅ Успешно! ${data.message}</div>`;
+            
+            // Информация о бизнесе
+            if (data.data.business) {
+                html += `
+                    <div class="statistics">
+                        <h3>📊 Информация о бизнесе</h3>
+                        <div class="stats-grid">
+                            <div class="stat-item">
+                                <div class="stat-value">${data.data.business.business_id}</div>
+                                <div class="stat-label">ID Бизнеса</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value">${data.data.business.name}</div>
+                                <div class="stat-label">Название</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value">${data.data.business.address || 'Не указан'}</div>
+                                <div class="stat-label">Адрес</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Статистика по статусам
+            if (data.data.statistics && data.data.statistics.by_status) {
+                html += `
+                    <div class="statistics">
+                        <h3>📈 Статистика по статусам</h3>
+                        <div class="stats-grid">
+                `;
+                
+                data.data.statistics.by_status.forEach(stat => {
+                    html += `
+                        <div class="stat-item">
+                            <div class="stat-value">${stat.count}</div>
+                            <div class="stat-label">${stat.status_name}</div>
+                        </div>
+                    `;
+                });
+                
+                html += `</div></div>`;
+            }
+            
+            // Информация о пагинации
+            if (data.data.pagination) {
+                const p = data.data.pagination;
+                html += `
+                    <div class="statistics">
+                        <h3>📄 Пагинация</h3>
+                        <p>Страница ${p.current_page} из ${p.total_pages} | Показано ${data.data.orders.length} из ${p.total} заказов</p>
+                        <div class="pagination">
+                            <button onclick="changePage(${p.current_page - 1})" ${!p.has_prev ? 'disabled' : ''}>⬅ Предыдущая</button>
+                            <span>Страница ${p.current_page}</span>
+                            <button onclick="changePage(${p.current_page + 1})" ${!p.has_next ? 'disabled' : ''}>Следующая ➡</button>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // Список заказов
+            if (data.data.orders && data.data.orders.length > 0) {
+                html += '<h3>📦 Заказы бизнеса:</h3>';
+                
+                data.data.orders.forEach(order => {
+                    const statusClass = `status-${order.current_status.status}`;
+                    const customerName = order.customer ? order.customer.name : 'Неизвестный покупатель';
+                    const deliveryAddress = order.delivery_address ? order.delivery_address.address : 'Адрес не указан';
+                    
+                    html += `
+                        <div class="order-card">
+                            <div class="order-header">
+                                <h4>Заказ #${order.order_uuid || order.order_id}</h4>
+                                <span class="order-status ${statusClass}">
+                                    ${order.current_status.status_name}
+                                </span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div>
+                                    <strong>👤 Покупатель:</strong> ${customerName}<br>
+                                    <strong>📍 Адрес доставки:</strong> ${deliveryAddress}<br>
+                                    <strong>🛍 Количество товаров:</strong> ${order.items_count}<br>
+                                    <strong>📅 Дата создания:</strong> ${new Date(order.order_created).toLocaleString('ru-RU')}
+                                </div>
+                                <div>
+                                    <strong>💰 Стоимость товаров:</strong> ${order.items_cost}₸<br>
+                                    <strong>🚚 Доставка:</strong> ${order.delivery_price}₸<br>
+                                    <strong>⚡ Сервисный сбор:</strong> ${order.service_fee}₸<br>
+                                    <strong>💵 Итого:</strong> ${order.total_sum}₸
+                                </div>
+                            </div>
+                            ${order.items && order.items.length > 0 ? `
+                                <details style="margin-top: 10px;">
+                                    <summary><strong>🛒 Товары в заказе (${order.items.length})</strong></summary>
+                                    <div style="margin-top: 10px;">
+                                        ${order.items.map(item => `
+                                            <div style="padding: 5px; border-bottom: 1px solid #eee;">
+                                                <strong>${item.name}</strong> - ${item.amount} ${item.unit} × ${item.price}₸ = ${item.subtotal}₸
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </details>
+                            ` : ''}
+                        </div>
+                    `;
+                });
+            } else {
+                html += '<div class="info">📭 Заказы не найдены</div>';
+            }
+            
+            // JSON ответ
+            html += `
+                <details style="margin-top: 20px;">
+                    <summary><strong>🔍 Полный JSON ответ</strong></summary>
+                    <div class="result info" style="margin-top: 10px;">
+                        ${JSON.stringify(data, null, 2)}
+                    </div>
+                </details>
+            `;
+            
+            resultDiv.innerHTML = html;
+        }
+        
+        function displayErrorResult(data) {
+            const resultDiv = document.getElementById('result');
+            let errorMessage = 'Произошла ошибка';
+            
+            if (data.error) {
+                errorMessage = data.error.message || data.message || errorMessage;
+            } else if (data.message) {
+                errorMessage = data.message;
+            }
+            
+            resultDiv.innerHTML = `
+                <div class="error">❌ Ошибка: ${errorMessage}</div>
+                <details style="margin-top: 10px;">
+                    <summary><strong>🔍 Полный ответ сервера</strong></summary>
+                    <div class="result error" style="margin-top: 10px;">
+                        ${JSON.stringify(data, null, 2)}
+                    </div>
+                </details>
+            `;
+        }
+        
+        function changePage(newPage) {
+            if (newPage < 1) return;
+            document.getElementById('page').value = newPage;
+            document.getElementById('businessOrdersForm').dispatchEvent(new Event('submit'));
+        }
+        
+        // Устанавливаем сегодняшнюю дату как дату окончания по умолчанию
+        document.getElementById('dateTo').value = new Date().toISOString().split('T')[0];
+        
+        // Устанавливаем дату начала на неделю назад
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        document.getElementById('dateFrom').value = weekAgo.toISOString().split('T')[0];
+    </script>
+</body>
+</html>
