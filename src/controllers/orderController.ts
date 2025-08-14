@@ -1012,6 +1012,8 @@ export class OrderController {
       where: { order_id: orderId }
     });
 
+    sumBeforeDelivery -= order?.bonus || 0; // Вычитаем бонусы из суммы до доставки
+
     const deliveryPrice = Number(order?.delivery_price || 0);
     const totalSum = sumBeforeDelivery + deliveryPrice;
 
