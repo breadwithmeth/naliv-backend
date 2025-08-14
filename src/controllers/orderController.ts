@@ -761,6 +761,7 @@ export class OrderController {
           if (item.options && item.options.length > 0) {
             for (const option of item.options) {
               // Получаем данные опции для определения цены
+              
               const optionData = await tx.option_items.findUnique({
                 where: { relation_id: option.option_item_relation_id }
               });
@@ -773,7 +774,7 @@ export class OrderController {
                     option_item_relation_id: option.option_item_relation_id,
                     order_id: order.order_id,
                     price: Number(optionData.price || 0), // Цена из таблицы option_items
-                    amount: option.amount
+                    amount: item.amount / (option.parent_amount || 1) // Количество опции
                   }
                 });
               }
