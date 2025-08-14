@@ -523,7 +523,7 @@ export class OrderController {
         lat,
         lon,
         items, 
-        bonus = 0, 
+        bonus_amount = 0, 
         extra = '',
         delivery_type = 'DELIVERY',
         delivery_date
@@ -670,7 +670,7 @@ export class OrderController {
           order_uuid,
           address_id: address_id || 1, // Обязательное поле, ставим дефолтное значение если нет адреса
           delivery_price: deliveryPrice, // Добавляем стоимость доставки
-          bonus,
+          bonus_amount,
           extra,
           delivery_type: delivery_type as orders_delivery_type,
           delivery_date: delivery_date ? new Date(delivery_date) : null,
