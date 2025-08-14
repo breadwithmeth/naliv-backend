@@ -4,7 +4,7 @@ import businessRoutes from './businesses';
 import authRoutes from './auth';
 import orderRoutes from './orders';
 import employeeAuthRoutes from './employeeAuth';
-// import employeeRoutes from './employee';
+import employeeRoutes from './employee';
 import categoryRoutes from './categories';
 import deliveryRoutes from './delivery';
 import addressRoutes from './addresses';
@@ -98,7 +98,7 @@ router.use('/user', userCardsRoutes);
 router.use('/bonuses', bonusRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/employee/auth', employeeAuthRoutes);
-// router.use('/employee', employeeRoutes);
+router.use('/employee', employeeRoutes);
 router.use('/courier/auth', courierAuthRoutes);
 router.use('/courier', courierRoutes);
 

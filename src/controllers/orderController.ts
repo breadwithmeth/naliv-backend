@@ -769,7 +769,7 @@ export class OrderController {
                 await tx.order_items_options.create({
                   data: {
                     order_item_relation_id: orderItem.relation_id,
-                    item_id: item.item_id,
+                    item_id: optionData.item_id,
                     option_item_relation_id: option.option_item_relation_id,
                     order_id: order.order_id,
                     price: Number(optionData.price || 0), // Цена из таблицы option_items
