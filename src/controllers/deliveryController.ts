@@ -232,12 +232,12 @@ export class DeliveryController {
       if(distance > Number(delivery_rate?.base_distance)) {
         // Если расстояние больше базового, используем цену за расстояние
         delivery_price = (distance - Number(delivery_rate?.base_distance)) * Number(delivery_rate_details?.price) + Number(delivery_rate?.base_distance_price);
-      }
-    }else {
+      }else {
       // Если расстояние больше максимального, используем цену за максимальное расстояние
       delivery_price = Number(delivery_rate?.base_distance_price) || 0;
     }
 
+    }
 
 
       // if (delivery_rate?.base_distance_price) {
