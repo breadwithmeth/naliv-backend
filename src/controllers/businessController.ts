@@ -866,6 +866,224 @@ export class BusinessController {
   }
 
   /**
+   * Получить акции бизнеса и их содержимое (товары)
+   * GET /api/businesses/:businessId/promotions?active=true&page=1&limit=20&item_limit=50&search=...
+   */
+  static async getBusinessPromotions(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const businessId = parseInt(req.params.businessId);
+      if (isNaN(businessId)) {
+        throw createError(400, 'Неверный ID бизнеса');
+      }
+
+      const page = parseInt((req.query.page as string) || '1');
+      const limit = Math.min(parseInt((req.query.limit as string) || '20'), 100);
+      const itemLimit = Math.min(parseInt((req.query.item_limit as string) || '50'), 200);
+      const onlyActive = (req.query.active ?? 'true') === 'true';
+      const search = (req.query.search as string) || undefined;
+
+      // Проверяем существование бизнеса
+      const business = await prisma.businesses.findUnique({
+        where: { business_id: businessId },
+        select: { business_id: true, name: true, address: true }
+      });
+
+      if (!business) {
+        throw createError(404, 'Бизнес не найден');
+      }
+
+      const now = new Date();
+      const where: any = {
+        business_id: businessId,
+        visible: 1
+      };
+      if (onlyActive) {
+        where.start_promotion_date = { lte: now };
+        where.end_promotion_date = { gte: now };
+      }
+      if (search) {
+        where.name = { contains: search };
+      }
+
+      // Получаем акции с пагинацией
+      const [promotions, total] = await Promise.all([
+        prisma.marketing_promotions.findMany({
+          where,
+          orderBy: [
+            { start_promotion_date: 'desc' },
+            { marketing_promotion_id: 'desc' }
+          ],
+          skip: (page - 1) * limit,
+          take: limit
+        }),
+        prisma.marketing_promotions.count({ where })
+      ]);
+
+      if (promotions.length === 0) {
+        res.json({
+          success: true,
+          data: {
+            business,
+            promotions: [],
+            pagination: {
+              current_page: page,
+              per_page: limit,
+              total: 0,
+              total_pages: 0,
+              has_next: false,
+              has_prev: false
+            },
+            filters: {
+              active: onlyActive,
+              search: search || null,
+              item_limit: itemLimit
+            }
+          },
+          message: 'Акции не найдены'
+        });
+        return;
+      }
+
+      const promotionIds = promotions.map(p => p.marketing_promotion_id);
+
+      // Детали акций (содержат item_id и параметры акции)
+      const details = await prisma.marketing_promotion_details.findMany({
+        where: { marketing_promotion_id: { in: promotionIds } }
+      });
+
+      // Карта: акция -> список item_id
+      const itemsByPromotion = new Map<number, number[]>();
+      for (const d of details as any[]) {
+        const list = itemsByPromotion.get(d.marketing_promotion_id) || [];
+        list.push(d.item_id);
+        itemsByPromotion.set(d.marketing_promotion_id, list);
+      }
+
+      const allItemIds = Array.from(new Set(details.map((d: any) => d.item_id)));
+
+      // Получаем товары всех акций одним запросом
+      const items = allItemIds.length > 0 ? await prisma.items.findMany({
+        where: { item_id: { in: allItemIds }, business_id: businessId, visible: 1 },
+        orderBy: { name: 'asc' }
+      }) : [];
+
+      // Категории
+      const categoryIds = Array.from(new Set(items.map((it: any) => it.category_id).filter((id: any) => id !== null))) as number[];
+      const categories = categoryIds.length ? await prisma.categories.findMany({
+        where: { category_id: { in: categoryIds } },
+        select: { category_id: true, name: true, parent_category: true }
+      }) : [];
+      const categoryMap = new Map(categories.map((c: any) => [c.category_id, c]));
+
+      // Опции и варианты
+      const itemIds = items.map((it: any) => it.item_id);
+      const options = itemIds.length ? await prisma.options.findMany({
+        where: { item_id: { in: itemIds } },
+        orderBy: { option_id: 'asc' }
+      }) : [];
+      const optionIds = options.map((o: any) => o.option_id);
+      const optionItems = optionIds.length ? await prisma.option_items.findMany({
+        where: { option_id: { in: optionIds } },
+        orderBy: { relation_id: 'asc' }
+      }) : [];
+
+      const optionsByItem = new Map<number, any[]>();
+      for (const opt of options as any[]) {
+        const variants = optionItems
+          .filter((v: any) => v.option_id === opt.option_id)
+          .map((v: any) => ({
+            relation_id: v.relation_id,
+            item_id: v.item_id,
+            price_type: v.price_type,
+            price: v.price ? Number(v.price) : 0,
+            parent_item_amount: v.parent_item_amount
+          }));
+        const optObj = {
+          option_id: opt.option_id,
+          name: opt.name,
+          required: opt.required,
+          selection: opt.selection,
+          variants
+        };
+        const arr = optionsByItem.get(opt.item_id) || [];
+        arr.push(optObj);
+        optionsByItem.set(opt.item_id, arr);
+      }
+
+      // Карта деталей по ключу "promotionId:itemId"
+      const detailByItemByPromo = new Map<string, any>();
+      for (const d of details as any[]) {
+        detailByItemByPromo.set(`${d.marketing_promotion_id}:${d.item_id}`, {
+          detail_id: d.detail_id,
+          type: d.type,
+          base_amount: d.base_amount !== null ? Number(d.base_amount) : null,
+          add_amount: d.add_amount !== null ? Number(d.add_amount) : null,
+          discount: d.discount !== null ? Number(d.discount) : null,
+          name: d.name
+        });
+      }
+
+      const itemsMap = new Map(items.map((it: any) => [it.item_id, it]));
+
+      const promotionsWithItems = promotions.map(promo => {
+        const itemIdsForPromo = itemsByPromotion.get(promo.marketing_promotion_id) || [];
+        const promoItems = itemIdsForPromo
+          .map(id => itemsMap.get(id))
+          .filter(Boolean)
+          .slice(0, itemLimit)
+          .map((item: any) => ({
+            item_id: item.item_id,
+            name: item.name,
+            price: item.price ? Number(item.price) : null,
+            amount: item.amount ? Number(item.amount) : 0,
+            unit: item.unit || 'шт',
+            img: item.img,
+            code: item.code,
+            category: categoryMap.get(item.category_id) || null,
+            visible: item.visible,
+            promotion_detail: detailByItemByPromo.get(`${promo.marketing_promotion_id}:${item.item_id}`) || null
+          }));
+
+        return {
+          marketing_promotion_id: promo.marketing_promotion_id,
+          name: promo.name,
+          start_promotion_date: promo.start_promotion_date,
+          end_promotion_date: promo.end_promotion_date,
+          visible: promo.visible,
+          active: promo.start_promotion_date <= now && promo.end_promotion_date >= now,
+          items_count: itemIdsForPromo.length,
+          items: promoItems
+        };
+      });
+
+      res.json({
+        success: true,
+        data: {
+          business,
+          promotions: promotionsWithItems,
+          pagination: {
+            current_page: page,
+            per_page: limit,
+            total: total,
+            total_pages: Math.ceil(total / limit),
+            has_next: page < Math.ceil(total / limit),
+            has_prev: page > 1
+          },
+          filters: {
+            active: onlyActive,
+            search: search || null,
+            item_limit: itemLimit
+          }
+        },
+        message: `Найдено ${promotions.length} акций`
+      });
+
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Вспомогательный метод для получения названия статуса
    */
   private static getStatusName(status: number): string {
@@ -881,4 +1099,6 @@ export class BusinessController {
     };
     return statusNames[status] || 'Неизвестный статус';
   }
+
+  
 }

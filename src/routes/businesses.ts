@@ -19,6 +19,10 @@ router.get('/:businessId/items', BusinessController.getBusinessItems);
 // GET /api/businesses/:businessId/categories - Получить категории товаров бизнеса
 router.get('/:businessId/categories', BusinessController.getBusinessCategories);
 
+// GET /api/businesses/:businessId/promotions - Получить акции бизнеса и их содержимое
+// Query params: ?active=true&page=1&limit=20&item_limit=50&search=...
+router.get('/:businessId/promotions', BusinessController.getBusinessPromotions);
+
 // GET /api/businesses/reports/couriers - Отчет по курьерам и доставкам за период
 // Query params: ?start_date=2025-08-01&end_date=2025-08-10&city_id=1&courier_id=5
 // Требует авторизации бизнеса, business_id берется из middleware

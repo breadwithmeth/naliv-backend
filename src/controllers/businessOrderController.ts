@@ -366,7 +366,8 @@ export class BusinessOrderController {
               description: true,
               img: true,
               unit: true,
-              price: true
+              price: true,
+              barcode: true
             }
           });
 
@@ -430,6 +431,7 @@ export class BusinessOrderController {
             relation_id: orderItem.relation_id,
             item_id: orderItem.item_id,
             name: item?.name || 'Неизвестный товар',
+            barcode: item?.barcode || '',
             description: item?.description || '',
             img: item?.img || '',
             amount: Number(orderItem.amount || 0),
