@@ -296,6 +296,8 @@ export class CategoryController {
     try {
       const categoryId = parseInt(req.params.id);
       const { business_id, page = '1', limit = '20' } = req.query;
+      // добавлен optional user_id для отметки избранных
+      const userIdParam = req.query.user_id as string | undefined;
 
       if (isNaN(categoryId)) {
         return next(createError(400, 'Неверный ID категории'));
@@ -524,6 +526,22 @@ export class CategoryController {
         }
       }
 
+      // Собираем liked_items по user_id, если передан
+      let likedSet: Set<number> | undefined = undefined;
+      if (userIdParam) {
+        const userIdNum = parseInt(userIdParam);
+        if (!isNaN(userIdNum) && itemIds.length > 0) {
+          const likedRows = await prisma.liked_items.findMany({
+            where: {
+              user_id: userIdNum,
+              item_id: { in: itemIds }
+            },
+            select: { item_id: true }
+          });
+          likedSet = new Set(likedRows.map(r => r.item_id));
+        }
+      }
+
       res.json({
         success: true,
         data: {
@@ -547,7 +565,8 @@ export class CategoryController {
             category: categoryInfoMap.get(item.category_id) || null,
             visible: item.visible,
             options: itemOptionsMap.get(item.item_id) || [],
-            promotions: activePromotions.get(item.item_id) || []
+            promotions: activePromotions.get(item.item_id) || [],
+            is_liked: likedSet ? likedSet.has(item.item_id) : false
           })),
           pagination: {
             page: pageNum,
@@ -575,6 +594,8 @@ export class CategoryController {
     try {
       const itemId = parseInt(req.params.itemId);
       const { business_id } = req.query;
+      // добавлен optional user_id для отметки избранного товара
+      const userIdParam = req.query.user_id as string | undefined;
 
       if (isNaN(itemId)) {
         return next(createError(400, 'Неверный ID товара'));
@@ -713,6 +734,19 @@ export class CategoryController {
         }
       }
 
+      // Вычисляем is_liked при наличии user_id
+      let isLiked = false;
+      if (userIdParam) {
+        const userIdNum = parseInt(userIdParam);
+        if (!isNaN(userIdNum)) {
+          const liked = await prisma.liked_items.findFirst({
+            where: { user_id: userIdNum, item_id: item.item_id },
+            select: { like_id: true }
+          });
+          isLiked = !!liked;
+        }
+      }
+
       res.json({
         success: true,
         data: {
@@ -732,7 +766,8 @@ export class CategoryController {
           },
           business: business,
           options: optionsWithVariants,
-          promotions: promotions
+          promotions: promotions,
+          is_liked: isLiked
         },
         message: 'Товар получен успешно'
       });
