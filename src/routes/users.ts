@@ -13,6 +13,7 @@ router.get('/search', authenticateEmployee, UserController.searchUsersByPhone);
 
 // GET /api/users/details/:userId - Получить детальную информацию о пользователе (только для сотрудников)
 router.get('/details/:userId', authenticateEmployee, UserController.getUserById);
+router.get('/liked-items', authenticateToken, LikedItemsController.getUserLikedItems);
 
 // ===== ПОЛЬЗОВАТЕЛИ (административные) =====
 // GET /api/users - Получить всех пользователей (без авторизации для админки)
@@ -33,7 +34,6 @@ router.get('/:userId/items/business/:businessId', optionalAuth, UserItemsControl
 // ===== ИЗБРАННЫЕ ТОВАРЫ (требуют авторизации) =====
 // GET /api/users/liked-items - Получить избранные товары текущего пользователя
 // Query params: ?business_id=1&page=1&limit=20
-router.get('/liked-items', authenticateToken, LikedItemsController.getUserLikedItems);
 
 // POST /api/users/liked-items - Добавить товар в избранное (текущий пользователь)
 // Body: { "item_id": 123 }
