@@ -735,17 +735,7 @@ export class CategoryController {
       }
 
       // Вычисляем is_liked при наличии user_id
-      let isLiked = false;
-      if (userIdParam) {
-        const userIdNum = parseInt(userIdParam);
-        if (!isNaN(userIdNum)) {
-          const liked = await prisma.liked_items.findFirst({
-            where: { user_id: userIdNum, item_id: item.item_id },
-            select: { like_id: true }
-          });
-          isLiked = !!liked;
-        }
-      }
+      
 
       res.json({
         success: true,
@@ -767,7 +757,6 @@ export class CategoryController {
           business: business,
           options: optionsWithVariants,
           promotions: promotions,
-          is_liked: isLiked
         },
         message: 'Товар получен успешно'
       });

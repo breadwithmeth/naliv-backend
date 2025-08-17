@@ -3,6 +3,7 @@ import { UserController as UserItemsController } from '../controllers/userItemsC
 import { UserController } from '../controllers/userController';
 import { authenticateToken, optionalAuth } from '../middleware/auth';
 import { authenticateEmployee } from '../middleware/employeeAuth';
+import { LikedItemsController } from '../controllers/likedItemsController';
 
 const router = Router();
 
@@ -30,16 +31,16 @@ router.post('/', UserItemsController.createUser);
 router.get('/:userId/items/business/:businessId', optionalAuth, UserItemsController.getUserItemsByBusiness);
 
 // ===== ИЗБРАННЫЕ ТОВАРЫ (требуют авторизации) =====
-// GET /api/users/:userId/liked-items - Получить избранные товары пользователя
-// Query params: ?page=1&limit=20
-router.get('/:userId/liked-items', authenticateToken, UserItemsController.getUserLikedItems);
+// GET /api/users/liked-items - Получить избранные товары текущего пользователя
+// Query params: ?business_id=1&page=1&limit=20
+router.get('/liked-items', authenticateToken, LikedItemsController.getUserLikedItems);
 
-// POST /api/users/:userId/liked-items - Добавить товар в избранное
+// POST /api/users/liked-items - Добавить товар в избранное (текущий пользователь)
 // Body: { "item_id": 123 }
-router.post('/:userId/liked-items', authenticateToken, UserItemsController.addItemToLiked);
+router.post('/liked-items', authenticateToken, UserItemsController.addItemToLiked);
 
-// DELETE /api/users/:userId/liked-items/:itemId - Удалить товар из избранного
-router.delete('/:userId/liked-items/:itemId', authenticateToken, UserItemsController.removeItemFromLiked);
+// DELETE /api/users/liked-items/:itemId - Удалить товар из избранного (текущий пользователь)
+router.delete('/liked-items/:itemId', authenticateToken, UserItemsController.removeItemFromLiked);
 
 // ===== FCM ТОКЕНЫ =====
 // POST /api/users/fcm-token - Сохранить FCM токен пользователя (требует авторизации)

@@ -365,21 +365,17 @@ export class UserController {
    */
   static async addItemToLiked(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const userId = parseInt(req.params.userId);
+      // Используем user_id из middleware авторизации
+      const authReq = req as any;
+      const userId: number | undefined = authReq.user?.user_id;
       const { item_id } = req.body;
 
-      if (isNaN(userId) || !item_id) {
+      if (!userId || !item_id) {
         throw createError(400, 'Неверный ID пользователя или товара');
       }
 
       // Проверяем существование пользователя
-      const user = await prisma.user.findUnique({
-        where: { user_id: userId }
-      });
-
-      if (!user) {
-        throw createError(404, 'Пользователь не найден');
-      }
+  // Пользователь определяется токеном; дополнительная проверка наличия в БД не требуется
 
       // Проверяем существование товара
       const item = await prisma.items.findUnique({
@@ -424,10 +420,12 @@ export class UserController {
    */
   static async removeItemFromLiked(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
-      const userId = parseInt(req.params.userId);
+      // Используем user_id из middleware авторизации
+      const authReq = req as any;
+      const userId: number | undefined = authReq.user?.user_id;
       const itemId = parseInt(req.params.itemId);
 
-      if (isNaN(userId) || isNaN(itemId)) {
+      if (!userId || isNaN(itemId)) {
         throw createError(400, 'Неверный ID пользователя или товара');
       }
 
