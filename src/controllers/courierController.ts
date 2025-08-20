@@ -91,6 +91,7 @@ export class CourierController {
           where: { user_id: order.user_id },
           select: {
             user_id: true,
+            login: true,
             name: true,
             first_name: true,
             last_name: true
@@ -262,6 +263,7 @@ export class CourierController {
         order_uuid: order.order_uuid,
         user: user ? {
           user_id: user.user_id,
+          phone_number: user.login,
           name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь'
         } : null,
         business: business ? {
