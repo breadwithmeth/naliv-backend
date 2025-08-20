@@ -775,7 +775,6 @@ export class CourierController {
           ) os ON o.order_id = os.order_id AND os.rn = 1
           WHERE b.city = ${cityId} 
           AND os.status = 2
-          AND o.delivery_type = 1
           ORDER BY o.log_timestamp DESC
           LIMIT ${limit} OFFSET ${offset}
         `,
