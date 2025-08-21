@@ -38,6 +38,7 @@ router.get('/:userId/items/business/:businessId', optionalAuth, UserItemsControl
 // POST /api/users/liked-items - Добавить товар в избранное (текущий пользователь)
 // Body: { "item_id": 123 }
 router.post('/liked-items', authenticateToken, UserItemsController.addItemToLiked);
+router.post('/liked-items/toggle', authenticateToken, LikedItemsController.toggleLike);
 
 // DELETE /api/users/liked-items/:itemId - Удалить товар из избранного (текущий пользователь)
 router.delete('/liked-items/:itemId', authenticateToken, UserItemsController.removeItemFromLiked);

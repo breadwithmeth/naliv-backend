@@ -249,6 +249,59 @@ export class LikedItemsController {
       return next(createError(500, `Ошибка получения избранных товаров: ${error.message}`));
     }
   }
+
+  /**
+   * Поставить или снять лайк (toggle)
+   * POST /api/users/liked-items/toggle { item_id: number }
+   * Возвращает текущее состояние is_liked после операции
+   */
+  static async toggleLike(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      if (!req.user) {
+        return next(createError(401, 'Требуется авторизация'));
+      }
+      const userId = req.user.user_id;
+      const { item_id } = req.body as { item_id?: number | string };
+      if (!item_id) {
+        return next(createError(400, 'item_id обязателен'));
+      }
+      const itemIdNum = parseInt(item_id as string, 10);
+      if (isNaN(itemIdNum) || itemIdNum <= 0) {
+        return next(createError(400, 'Некорректный item_id'));
+      }
+
+      // Проверяем существование товара
+      const item = await prisma.items.findUnique({ where: { item_id: itemIdNum }, select: { item_id: true } });
+      if (!item) {
+        return next(createError(404, 'Товар не найден'));
+      }
+
+      const existing = await prisma.liked_items.findFirst({
+        where: { user_id: userId, item_id: itemIdNum },
+        select: { like_id: true }
+      });
+
+      let isLiked: boolean;
+      if (existing) {
+        // Удаляем лайк
+        await prisma.liked_items.delete({ where: { like_id: existing.like_id } });
+        isLiked = false;
+      } else {
+        // Ставит лайк
+        await prisma.liked_items.create({ data: { user_id: userId, item_id: itemIdNum } });
+        isLiked = true;
+      }
+
+      return res.json({
+        success: true,
+        data: { item_id: itemIdNum, is_liked: isLiked },
+        message: isLiked ? 'Лайк установлен' : 'Лайк снят'
+      });
+    } catch (error: any) {
+      console.error('Ошибка toggle лайка:', error);
+      return next(createError(500, `Ошибка обработки лайка: ${error.message}`));
+    }
+  }
 }
 
 export default LikedItemsController;
