@@ -712,6 +712,7 @@ model supercategories {
   name             String    @db.VarChar(255)
   description      String?   @db.Text
   log_timestamp    DateTime? @default(now()) @db.Timestamp(0)
+  priority        Int       @default(0)
 }
 
 enum cities_delivery_type {

@@ -775,7 +775,7 @@ export class CategoryController {
     try {
       // Сначала получаем все суперкатегории
       const supers = await prisma.supercategories.findMany({
-        orderBy: { name: 'asc' }
+        orderBy: {priority : 'desc' }
       });
       // Для каждой суперкатегории получаем корневые категории и их подкатегории
       const supercategories = await Promise.all(
