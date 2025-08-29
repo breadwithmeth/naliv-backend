@@ -777,7 +777,7 @@ export class BusinessController {
           WHERE bonus_cards.user_id = u.user_id 
         ) 
         WHERE u.user_id > 1
-          AND bc.log_timestamp >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+          AND bc.log_timestamp >= DATE_SUB(NOW(), INTERVAL 150 DAY)
       `;
 
       const queryParams: any[] = [];
