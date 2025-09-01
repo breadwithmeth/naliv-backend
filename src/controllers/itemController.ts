@@ -176,6 +176,12 @@ export class ItemController {
             where: { option_id: option.option_id },
             orderBy: { relation_id: 'asc' }
           });
+          const itemIds = Array.from(new Set(variants.map(v => v.item_id)));
+          const items = await prisma.items.findMany({
+          where: { item_id: { in: itemIds } },
+          select: { item_id: true, name: true }
+        });
+        const itemMap = new Map(items.map(i => [i.item_id, i.name]));
 
           const optionWithVariants = {
             option_id: option.option_id,
@@ -183,6 +189,7 @@ export class ItemController {
             required: option.required,
             selection: option.selection,
             variants: variants.map((variant: any) => ({
+              item_name: itemMap.get(variant.item_id),
               relation_id: variant.relation_id,
               item_id: variant.item_id,
               price_type: variant.price_type,
