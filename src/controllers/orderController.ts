@@ -774,7 +774,7 @@ export class OrderController {
                     option_item_relation_id: option.option_item_relation_id,
                     order_id: order.order_id,
                     price: Number(optionData.price || 0), // Цена из таблицы option_items
-                    amount: item.amount / (option.parent_amount || 1) // Количество опции
+                    amount: item.amount / (optionData.parent_item_amount || 1) // Количество опции
                   }
                 });
               }
