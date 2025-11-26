@@ -5,9 +5,10 @@ import prisma from '../database';
 import { createError } from '../middleware/errorHandler';
 import Prelude from '@prelude.so/sdk';
 import { Verification } from '@prelude.so/sdk/resources/verification';
+import { randomUUID } from 'crypto';
 
 // Инициализация Prelude SDK (использует PRELUDE_API_KEY из окружения)
-const preludeClient = new Prelude({ apiToken: "sk_wIM7kLqD9rKaFfUkAawgQtY3VKWVWkj3" });
+const preludeClient = new Prelude({ apiToken: "sk_5F8dG5g52vAcmDGgjj3iGeW7HYza1KHg" });
 
 // Отправка SMS кода через Prelude SDK
 async function sendSMSViaPrelude(phoneNumber: string): Promise<boolean> {
@@ -115,6 +116,9 @@ export class AuthController {
         }
       });
 
+      // Создаём новую бонусную (дисконтную) карту ВСЕГДА при регистрации
+      await AuthController.createBonusCard(newUser.user_id);
+
       res.status(201).json({
         success: true,
         data: {
@@ -180,6 +184,9 @@ export class AuthController {
           token: token
         }
       });
+
+      // Создаём новую бонусную (дисконтную) карту при каждом успешном логине
+      await AuthController.createBonusCard(user.user_id);
 
       res.json({
         success: true,
@@ -432,6 +439,25 @@ export class AuthController {
   }
 
   /**
+   * Создание новой бонусной (дисконтной) карты пользователю.
+   * Бизнес-требование: новая карта на каждую авторизацию.
+   * Ошибки не пробрасываем наружу чтобы не ломать поток логина.
+   */
+  private static async createBonusCard(userId: number): Promise<void> {
+    try {
+      await prisma.bonus_cards.create({
+        data: {
+          user_id: userId,
+          card_uuid: randomUUID()
+        }
+      });
+      console.log('[bonus_cards] created', { userId, ts: new Date().toISOString() });
+    } catch (err) {
+      console.error('[bonus_cards] create error', { userId, error: (err as Error).message });
+    }
+  }
+
+  /**
    * Верификация JWT токена
    */
   static verifyToken(token: string): JWTPayload {
@@ -512,18 +538,8 @@ export class AuthController {
         
       }
 
-      // Создаем бонусную карту только если её ещё нет у пользователя
-      const existingBonusCard = await prisma.bonus_cards.findFirst({
-        where: { user_id: user.user_id }
-      });
-      if (!existingBonusCard) {
-        await prisma.bonus_cards.create({
-          data: {
-            user_id: user.user_id,
-            card_uuid: `${Date.now()}${Math.random().toString(36).substr(2, 9)}` // Простая генерация UUID
-          }
-        });
-      }
+      // Создаём новую бонусную (дисконтную) карту при авторизации через код (каждый успешный вход)
+      await AuthController.createBonusCard(user.user_id);
 
       // Генерация временного пароля для входа по одноразовому коду
       const rawPassword = require('crypto').randomBytes(6).toString('hex');
