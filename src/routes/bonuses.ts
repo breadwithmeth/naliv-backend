@@ -3,7 +3,7 @@ import {
   getUserBonuses, 
   createBonusCard, 
   addBonuses, 
-  getBonusHistory 
+  getBonusHistory
 } from '../controllers/bonusController';
 import { authenticateToken } from '../middleware/auth';
 

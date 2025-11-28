@@ -545,10 +545,13 @@ export class AuthController {
       const rawPassword = require('crypto').randomBytes(6).toString('hex');
       const saltRounds = 12;
       const hashedPassword = await bcrypt.hash(rawPassword, saltRounds);
-      // Обновляем пароль пользователя
+      // Обновляем пароль пользователя и помечаем как пользователя приложения
       await prisma.user.update({
         where: { user_id: user.user_id },
-        data: { password: hashedPassword }
+        data: { 
+          password: hashedPassword,
+          is_app_user: 1
+        }
       });
 
       // Удаляем старые токены пользователя (опционально)

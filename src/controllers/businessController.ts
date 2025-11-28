@@ -777,7 +777,8 @@ export class BusinessController {
           WHERE bonus_cards.user_id = u.user_id 
         ) 
         WHERE u.user_id > 1
-          AND bc.log_timestamp >= DATE_SUB(NOW(), INTERVAL 150 DAY)
+          AND u.is_app_user = 1
+          
       `;
 
       const queryParams: any[] = [];
@@ -1098,6 +1099,160 @@ export class BusinessController {
       66: 'Не оплачен'
     };
     return statusNames[status] || 'Неизвестный статус';
+  }
+
+  /**
+   * Пометить всех пользователей приложения (массовое обновление)
+   * POST /api/business/mark-app-users
+   */
+  static async markAppUsers(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      // Выполняем массовое обновление через raw query
+      const updateResult = await prisma.$executeRaw`
+        UPDATE users u
+        INNER JOIN bonus_cards bc ON bc.user_id = u.user_id
+        INNER JOIN phone_number_verify pv ON pv.phone_number = u.login
+        SET u.is_app_user = 1
+        WHERE u.user_id > 1
+          AND u.login IS NOT NULL
+          AND u.is_app_user = 0
+      `;
+
+      // Получаем статистику после обновления
+      const stats = await prisma.$queryRaw<Array<{
+        total_users: bigint;
+        app_users: bigint;
+        non_app_users: bigint;
+      }>>`
+        SELECT 
+          COUNT(*) as total_users,
+          SUM(CASE WHEN is_app_user = 1 THEN 1 ELSE 0 END) as app_users,
+          SUM(CASE WHEN is_app_user = 0 THEN 1 ELSE 0 END) as non_app_users
+        FROM users
+        WHERE user_id > 1
+      `;
+
+      const statsResult = stats[0];
+
+      res.json({
+        success: true,
+        data: {
+          updated_count: updateResult,
+          statistics: {
+            total_users: Number(statsResult.total_users),
+            app_users: Number(statsResult.app_users),
+            non_app_users: Number(statsResult.non_app_users)
+          }
+        },
+        message: `Успешно помечено ${updateResult} пользователей приложения`
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка при пометке пользователей приложения:', error);
+      next(createError(500, 'Ошибка при массовом обновлении пользователей'));
+    }
+  }
+
+  /**
+   * Получить пользователей не из приложения (is_app_user = 0)
+   * GET /api/businesses/non-app-users
+   */
+  static async getNonAppUsers(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const search = req.query.search as string;
+      const offset = (page - 1) * limit;
+
+      let sqlQuery = `
+        SELECT 
+          u.user_id,
+          u.login,
+          u.name,
+          u.first_name,
+          u.last_name,
+          u.log_timestamp as created_at,
+          u.is_app_user,
+          bc.card_uuid,
+          bc.log_timestamp as card_created_at
+        FROM users u
+        LEFT JOIN bonus_cards bc ON bc.bonus_card_id = (
+          SELECT MAX(bonus_card_id)
+          FROM bonus_cards
+          WHERE bonus_cards.user_id = u.user_id
+        )
+        WHERE u.user_id > 1
+          AND u.is_app_user = 0
+      `;
+
+      const queryParams: any[] = [];
+
+      if (search) {
+        sqlQuery += ` AND (
+          u.login LIKE ? OR
+          u.name LIKE ? OR
+          u.first_name LIKE ? OR
+          u.last_name LIKE ?
+        )`;
+        const searchPattern = `%${search}%`;
+        queryParams.push(searchPattern, searchPattern, searchPattern, searchPattern);
+      }
+
+      sqlQuery += ` ORDER BY u.user_id DESC`;
+
+      const countQuery = sqlQuery.replace(
+        /SELECT[\s\S]*?FROM/,
+        'SELECT COUNT(DISTINCT u.user_id) as total FROM'
+      ).replace('ORDER BY u.user_id DESC', '');
+
+      sqlQuery += ` LIMIT ? OFFSET ?`;
+      queryParams.push(limit, offset);
+
+      const [users, totalCountResult] = await Promise.all([
+        prisma.$queryRawUnsafe<any[]>(sqlQuery, ...queryParams),
+        prisma.$queryRawUnsafe<any[]>(countQuery, ...queryParams.slice(0, -2))
+      ]);
+
+      const totalCount = Number(totalCountResult[0]?.total || 0);
+
+      const formattedUsers = users.map(user => ({
+        user_id: user.user_id,
+        login: user.login,
+        name: user.name,
+        first_name: user.first_name,
+        last_name: user.last_name,
+        full_name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || user.login || `Пользователь ${user.user_id}`,
+        created_at: user.created_at,
+        is_app_user: user.is_app_user,
+        bonus_card: user.card_uuid ? {
+          card_uuid: user.card_uuid,
+          created_at: user.card_created_at
+        } : null
+      }));
+
+      res.json({
+        success: true,
+        data: {
+          users: formattedUsers,
+          statistics: {
+            total_non_app_users: totalCount,
+            users_with_cards: formattedUsers.filter(u => u.bonus_card).length,
+            users_without_cards: formattedUsers.filter(u => !u.bonus_card).length
+          },
+          pagination: {
+            current_page: page,
+            per_page: limit,
+            total_items: totalCount,
+            total_pages: Math.ceil(totalCount / limit)
+          }
+        },
+        message: 'Список пользователей не из приложения получен'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка при получении пользователей не из приложения:', error);
+      next(createError(500, 'Ошибка при получении списка пользователей'));
+    }
   }
 
   

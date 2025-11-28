@@ -18,6 +18,7 @@ model User {
   password      String?   @db.VarChar(255)
   log_timestamp DateTime? @default(now()) @db.Timestamp(0)
   OneSignalId   String?   @db.VarChar(255)
+  is_app_user   Int       @default(0)
 
   @@map("users")
 }
