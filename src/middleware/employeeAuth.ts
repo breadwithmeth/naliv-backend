@@ -82,11 +82,12 @@ export const authenticateEmployee = async (req: EmployeeAuthRequest, res: Respon
 /**
  * Middleware для проверки уровня доступа сотрудника
  */
-export const requireAccessLevel = (minLevel: 'OPERATOR' | 'MANAGER' | 'ADMIN') => {
+export const requireAccessLevel = (minLevel: 'OPERATOR' | 'MANAGER' | 'SUPERVISOR' | 'ADMIN') => {
   const accessLevels = {
     'OPERATOR': 1,
     'MANAGER': 2,
-    'ADMIN': 3
+    'SUPERVISOR': 3,
+    'ADMIN': 4
   };
 
   return (req: EmployeeAuthRequest, res: Response, next: NextFunction) => {

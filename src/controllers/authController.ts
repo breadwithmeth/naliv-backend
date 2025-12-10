@@ -3,44 +3,72 @@ import * as jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import prisma from '../database';
 import { createError } from '../middleware/errorHandler';
-import Prelude from '@prelude.so/sdk';
-import { Verification } from '@prelude.so/sdk/resources/verification';
 import { randomUUID } from 'crypto';
+import axios from 'axios';
 
-// Инициализация Prelude SDK (использует PRELUDE_API_KEY из окружения)
-const preludeClient = new Prelude({ apiToken: "sk_5F8dG5g52vAcmDGgjj3iGeW7HYza1KHg" });
-
-// Отправка SMS кода через Prelude SDK
-async function sendSMSViaPrelude(phoneNumber: string): Promise<boolean> {
+/**
+ * Отправка кода верификации через WhatsApp
+ * @param phoneNumber - Номер телефона в формате 77077707600 (без +)
+ * @param code - 6-значный код
+ */
+async function sendCodeViaWhatsApp(phoneNumber: string, code: string): Promise<boolean> {
   try {
+    const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+    const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '958088394044701';
     
-    const verification = await preludeClient.verification.create({
-      target: { type: 'phone_number', value: phoneNumber },
-    });
-    console.log('Prelude verification created', verification?.id);
-    console.log('Prelude send', verification);
+    if (!accessToken) {
+      console.error('WHATSAPP_ACCESS_TOKEN не установлен');
+      return false;
+    }
+
+    // Убираем + из номера если есть
+    const cleanPhone = phoneNumber.replace(/^\+/, '');
+
+    const response = await axios.post(
+      `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+      {
+        messaging_product: 'whatsapp',
+        to: cleanPhone,
+        type: 'template',
+        template: {
+          name: 'access',
+          language: {
+            code: 'ru'
+          },
+          components: [
+            {
+              type: 'body',
+              parameters: [
+                {
+                  type: 'text',
+                  text: code
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log('WhatsApp message sent:', response.data);
     return true;
-  } catch (err) {
-    console.error('Prelude send error', err);
+  } catch (err: any) {
+    console.error('WhatsApp send error:', err.response?.data || err.message);
     return false;
   }
 }
 
-// Проверка кода через Prelude SDK
-async function checkVerificationCodeViaPrelude(phoneNumber: string, code: string): Promise<boolean> {
-  try {
-    const check = await preludeClient.verification.check({
-      target: { type: 'phone_number', value: phoneNumber },
-      code,
-      // Игнорируем истечение срока действия кода для тестирования
-    });
-    console.log('Prelude check', check?.id);
-    // SDK бросит ошибку если код неверен; если дошли сюда — успех
-    return true;
-  } catch (err) {
-    console.error('Prelude check error', err);
-    return false;
-  }
+/**
+ * Генерация 6-значного кода
+ */
+function generateVerificationCode(): string {
+  return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 // Интерфейсы для типизации
@@ -492,18 +520,15 @@ export class AuthController {
         return next(createError(400, 'Неверный формат номера телефона. Используйте формат +77077707600'));
       }
 
-      // Проверяем код через Prelude API
-      const isCodeValid = await checkVerificationCodeViaPrelude(phone_number, onetime_code);
-      
-      if (!isCodeValid) {
-        return next(createError(401, 'Неверный код подтверждения'));
+      // Валидация формата кода (6 цифр)
+      if (!/^\d{6}$/.test(onetime_code)) {
+        return next(createError(400, 'Код должен состоять из 6 цифр'));
       }
 
       // Проверяем, что для этого номера был запрос на верификацию
       const verification = await prisma.phone_number_verify.findFirst({
         where: {
           phone_number: phone_number,
-          onetime_code: 'PRELUDE',
           is_used: 0
         },
         orderBy: {
@@ -513,6 +538,23 @@ export class AuthController {
 
       if (!verification) {
         return next(createError(401, 'Не найден запрос на верификацию для данного номера'));
+      }
+
+      // Проверка срока действия кода (10 минут)
+      const codeAge = Date.now() - verification.log_timestamp.getTime();
+      if (codeAge > 10 * 60 * 1000) {
+        await prisma.phone_number_verify.update({
+          where: { verification_id: verification.verification_id },
+          data: { is_used: 1 }
+        });
+        return next(createError(401, 'Код истек. Запросите новый код'));
+      }
+
+      // Проверяем код
+      const isCodeValid = await bcrypt.compare(onetime_code, verification.onetime_code);
+      
+      if (!isCodeValid) {
+        return next(createError(401, 'Неверный код подтверждения'));
       }
 
       // Отмечаем верификацию как использованную
@@ -598,7 +640,7 @@ export class AuthController {
   }
 
   /**
-   * Отправка одноразового кода (заглушка)
+   * Отправка одноразового кода через WhatsApp
    * POST /auth/send-code
    */
   static async sendCode(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -615,6 +657,21 @@ export class AuthController {
         return next(createError(400, 'Неверный формат номера телефона. Используйте формат +77077707600'));
       }
 
+      // Проверка частоты запросов (не более 1 раза в минуту)
+      const recentVerification = await prisma.phone_number_verify.findFirst({
+        where: {
+          phone_number: phone_number,
+          log_timestamp: {
+            gte: new Date(Date.now() - 60000) // 1 минута назад
+          }
+        },
+        orderBy: { log_timestamp: 'desc' }
+      });
+
+      if (recentVerification) {
+        return next(createError(429, 'Попробуйте отправить код позже. Подождите 1 минуту'));
+      }
+
       // Удаляем старые неиспользованные коды для этого номера
       await prisma.phone_number_verify.deleteMany({
         where: {
@@ -623,29 +680,33 @@ export class AuthController {
         }
       });
 
-      // Отправляем запрос на отправку кода через Prelude
-      // Prelude сам генерирует и отправляет код
-      const smsSent = await sendSMSViaPrelude(phone_number);
-      
-      if (!smsSent) {
-        return next(createError(500, 'Ошибка отправки SMS. Попробуйте позже'));
-      }
+      // Генерируем 6-значный код
+      const verificationCode = generateVerificationCode();
 
-      // Создаем запись в базе данных для отслеживания запроса верификации
-      // Код будет проверяться напрямую через Prelude API
+      // Хешируем код для безопасного хранения
+      const hashedCode = await bcrypt.hash(verificationCode, 10);
+
+      // Сохраняем код в базе данных
       await prisma.phone_number_verify.create({
         data: {
           phone_number: phone_number,
-          onetime_code: 'PRELUDE', // Короткий маркер что код управляется Prelude
+          onetime_code: hashedCode,
           is_used: 0
         }
       });
+
+      // Отправляем код через WhatsApp
+      const messageSent = await sendCodeViaWhatsApp(phone_number, verificationCode);
+      
+      if (!messageSent) {
+        return next(createError(500, 'Ошибка отправки сообщения. Попробуйте позже'));
+      }
 
       res.json({
         success: true,
         data: {
           phone_number: phone_number,
-          message: "Код отправлен на указанный номер"
+          message: "Код отправлен в WhatsApp на указанный номер"
         },
         message: 'Код отправлен'
       });
