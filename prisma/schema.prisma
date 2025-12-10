@@ -526,7 +526,7 @@ model payments {
 model phone_number_verify {
   verification_id Int      @id @default(autoincrement())
   phone_number    String   @db.VarChar(30)
-  onetime_code    String   @db.VarChar(10)
+  onetime_code    String   @db.VarChar(255)
   log_timestamp   DateTime @default(now()) @db.Timestamp(0)
   is_used         Int      @default(0)
 }
