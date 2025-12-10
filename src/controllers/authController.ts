@@ -551,7 +551,16 @@ export class AuthController {
       }
 
       // Проверяем код
+      console.log('[verifyCode] Checking code:', { 
+        phone_number, 
+        inputCode: onetime_code, 
+        hashedCode: verification.onetime_code.substring(0, 20) + '...',
+        verificationId: verification.verification_id 
+      });
+      
       const isCodeValid = await bcrypt.compare(onetime_code, verification.onetime_code);
+      
+      console.log('[verifyCode] Code validation result:', isCodeValid);
       
       if (!isCodeValid) {
         return next(createError(401, 'Неверный код подтверждения'));
@@ -683,8 +692,21 @@ export class AuthController {
       // Генерируем 6-значный код
       const verificationCode = generateVerificationCode();
 
+      console.log('[sendCode] Generated code:', { 
+        phone_number, 
+        code: verificationCode,
+        codeLength: verificationCode.length,
+        codeType: typeof verificationCode
+      });
+
       // Хешируем код для безопасного хранения
       const hashedCode = await bcrypt.hash(verificationCode, 10);
+
+      console.log('[sendCode] Hashed code:', {
+        phone_number,
+        hashedCode: hashedCode.substring(0, 20) + '...',
+        hashedLength: hashedCode.length
+      });
 
       // Сохраняем код в базе данных
       await prisma.phone_number_verify.create({
