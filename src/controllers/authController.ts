@@ -31,7 +31,7 @@ async function sendCodeViaWhatsApp(phoneNumber: string, code: string): Promise<b
         to: cleanPhone,
         type: 'template',
         template: {
-          name: 'access',
+          name: 'r2',
           language: {
             code: 'ru'
           },
