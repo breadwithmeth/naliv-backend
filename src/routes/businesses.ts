@@ -22,6 +22,14 @@ router.get('/non-app-users', authenticateBusiness, BusinessController.getNonAppU
 // Требует авторизации бизнеса
 router.post('/mark-app-users', authenticateBusiness, BusinessController.markAppUsers);
 
+// POST /api/businesses/upload-items - Загрузить/обновить товары бизнеса (по коду)
+// Требует авторизации бизнеса
+router.post('/upload-items', authenticateBusiness, BusinessController.uploadItems);
+
+// POST /api/businesses/upload-prices - Загрузить/обновить цены и остатки товаров (по коду)
+// Требует авторизации бизнеса
+router.post('/upload-prices', authenticateBusiness, BusinessController.uploadPrices);
+
 // GET /api/businesses/reports/couriers - Отчет по курьерам и доставкам за период
 // Query params: ?start_date=2025-08-01&end_date=2025-08-10&city_id=1&courier_id=5
 // Требует авторизации бизнеса, business_id берется из middleware

@@ -4,6 +4,14 @@ import prisma from '../database';
 import { createError } from '../middleware/errorHandler';
 
 export class BusinessController {
+
+  private static toNumber(value: unknown, fieldName: string): number {
+    const parsed = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
+    if (!Number.isFinite(parsed)) {
+      throw createError(400, `Неверное числовое значение поля "${fieldName}"`);
+    }
+    return parsed;
+  }
   
   /**
    * Валидация и парсинг даты с поддержкой времени
@@ -1252,6 +1260,193 @@ export class BusinessController {
     } catch (error: any) {
       console.error('Ошибка при получении пользователей не из приложения:', error);
       next(createError(500, 'Ошибка при получении списка пользователей'));
+    }
+  }
+
+  /**
+   * Загрузка/обновление справочника товаров бизнеса по коду
+   * Аналог upload_items из legacy PHP
+   * POST /api/businesses/upload-items
+   * Auth: Authorization: Bearer <business_token>
+   * Body: { items: [{ code: string, name: string, barcode?: string|null }] }
+   */
+  static async uploadItems(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.business) {
+        throw createError(401, 'Требуется авторизация бизнеса');
+      }
+
+      const businessId = req.business.business_id;
+      const itemsRaw = (req.body as any)?.items;
+
+      if (!Array.isArray(itemsRaw)) {
+        throw createError(400, 'Поле "items" обязательно и должно быть массивом');
+      }
+
+      const normalized = itemsRaw
+        .map((it: any) => ({
+          code: typeof it?.code === 'string' ? it.code.trim() : String(it?.code ?? '').trim(),
+          name: typeof it?.name === 'string' ? it.name.trim() : String(it?.name ?? '').trim(),
+          barcode: it?.barcode === null || it?.barcode === undefined ? null : String(it.barcode).trim()
+        }))
+        .filter((it: { code: string; name: string; barcode: string | null }) => it.code.length > 0 && it.name.length > 0);
+
+      if (normalized.length === 0) {
+        throw createError(400, 'Список товаров пуст или имеет неверный формат');
+      }
+
+      const codes = Array.from(new Set(normalized.map(i => i.code)));
+
+      const existing = await prisma.items.findMany({
+        where: {
+          business_id: businessId,
+          code: { in: codes }
+        },
+        select: { code: true }
+      });
+      const existingCodes = new Set((existing || []).map(r => (r.code ?? '').toString()));
+
+      const toCreate = normalized
+        .filter(i => !existingCodes.has(i.code))
+        .map(i => ({
+          business_id: businessId,
+          code: i.code,
+          name: i.name,
+          visible: 1,
+          barcode: i.barcode
+        }));
+
+      const createResult = toCreate.length > 0
+        ? await prisma.items.createMany({ data: toCreate })
+        : { count: 0 };
+
+      const visibleUpdate = await prisma.items.updateMany({
+        where: {
+          business_id: businessId,
+          code: { in: codes }
+        },
+        data: { visible: 1 }
+      });
+
+      const codesByBarcode = new Map<string, string[]>();
+      for (const it of normalized) {
+        if (!it.barcode) continue;
+        const list = codesByBarcode.get(it.barcode) ?? [];
+        list.push(it.code);
+        codesByBarcode.set(it.barcode, list);
+      }
+
+      let barcodeUpdated = 0;
+      for (const [barcode, barcodeCodes] of codesByBarcode.entries()) {
+        const r = await prisma.items.updateMany({
+          where: {
+            business_id: businessId,
+            code: { in: Array.from(new Set(barcodeCodes)) }
+          },
+          data: { barcode }
+        });
+        barcodeUpdated += r.count;
+      }
+
+      res.json({
+        success: true,
+        data: {
+          received: itemsRaw.length,
+          normalized: normalized.length,
+          created: createResult.count,
+          visible_updated: visibleUpdate.count,
+          barcode_updated: barcodeUpdated
+        },
+        message: 'Товары успешно загружены'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Загрузка/обновление цен и остатков товаров бизнеса по коду
+   * Аналог upload_prices из legacy PHP
+   * POST /api/businesses/upload-prices
+   * Auth: Authorization: Bearer <business_token>
+   * Body: { items: [{ KodTMC: string, Cena: number|string, Kol: number|string } ] }
+   * Также поддерживает: { items: [{ code, price, amount }] }
+   */
+  static async uploadPrices(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      if (!req.business) {
+        throw createError(401, 'Требуется авторизация бизнеса');
+      }
+
+      const businessId = req.business.business_id;
+      const itemsRaw = (req.body as any)?.items;
+
+      if (!Array.isArray(itemsRaw)) {
+        throw createError(400, 'Поле "items" обязательно и должно быть массивом');
+      }
+
+      const normalized = itemsRaw
+        .map((it: any) => {
+          const code = (it?.KodTMC ?? it?.code ?? '').toString().trim();
+          const price = it?.Cena ?? it?.price;
+          const amount = it?.Kol ?? it?.amount;
+          return { code, price, amount };
+        })
+        .filter((it: { code: string }) => it.code.length > 0);
+
+      if (normalized.length === 0) {
+        throw createError(400, 'Список цен пуст или имеет неверный формат');
+      }
+
+      const codes = Array.from(new Set(normalized.map(i => i.code)));
+
+      const dbItems = await prisma.items.findMany({
+        where: {
+          business_id: businessId,
+          code: { in: codes }
+        },
+        select: { item_id: true, code: true }
+      });
+
+      const itemIdByCode = new Map<string, number>();
+      for (const row of dbItems) {
+        if (!row.code) continue;
+        itemIdByCode.set(String(row.code), row.item_id);
+      }
+
+      const updates = normalized
+        .map((it) => {
+          const itemId = itemIdByCode.get(it.code);
+          if (!itemId) return null;
+          const price = BusinessController.toNumber(it.price, 'Cena/price');
+          const amount = BusinessController.toNumber(it.amount, 'Kol/amount');
+          return prisma.items.update({
+            where: { item_id: itemId },
+            data: {
+              price,
+              amount,
+              visible: 1
+            }
+          });
+        })
+        .filter((op): op is ReturnType<typeof prisma.items.update> => op !== null);
+
+      if (updates.length > 0) {
+        await prisma.$transaction(updates);
+      }
+
+      res.json({
+        success: true,
+        data: {
+          received: itemsRaw.length,
+          normalized: normalized.length,
+          updated: updates.length,
+          skipped_not_found: normalized.length - updates.length
+        },
+        message: 'Цены и остатки успешно загружены'
+      });
+    } catch (error) {
+      next(error);
     }
   }
 
