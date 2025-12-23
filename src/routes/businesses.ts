@@ -30,6 +30,11 @@ router.post('/upload-items', authenticateBusiness, BusinessController.uploadItem
 // Требует авторизации бизнеса
 router.post('/upload-prices', authenticateBusiness, BusinessController.uploadPrices);
 
+// POST /api/businesses/whatsapp/send-code - Отправить код через WhatsApp
+// Body: { phone: "+77077707600" | "77077707600", code: "123456" } где phone = login пользователя (допускается alias: login)
+// Требует авторизации бизнеса
+router.post('/whatsapp/send-code', authenticateBusiness, BusinessController.sendWhatsAppCode);
+
 // GET /api/businesses/reports/couriers - Отчет по курьерам и доставкам за период
 // Query params: ?start_date=2025-08-01&end_date=2025-08-10&city_id=1&courier_id=5
 // Требует авторизации бизнеса, business_id берется из middleware

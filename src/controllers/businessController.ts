@@ -2,8 +2,98 @@ import { Request, Response, NextFunction } from 'express';
 import { BusinessAuthRequest } from '../middleware/businessAuth';
 import prisma from '../database';
 import { createError } from '../middleware/errorHandler';
+import axios from 'axios';
+import bcrypt from 'bcryptjs';
 
 export class BusinessController {
+
+  private static normalizeUserLoginPhone(login: unknown): string {
+    const raw = String(login ?? '').trim();
+    if (!raw) {
+      throw createError(400, 'Login обязателен');
+    }
+
+    // В БД логин обычно хранится как "+77077707600".
+    // Принимаем также "77077707600".
+    const withoutSpaces = raw.replace(/\s+/g, '');
+    const withPlus = withoutSpaces.startsWith('+') ? withoutSpaces : `+${withoutSpaces}`;
+
+    const loginRegex = /^\+7\d{10}$/;
+    if (!loginRegex.test(withPlus)) {
+      throw createError(400, 'Неверный формат login. Используйте +77077707600 или 77077707600');
+    }
+
+    return withPlus;
+  }
+
+  private static normalizePhoneForWhatsApp(phone: unknown): string {
+    const raw = String(phone ?? '').trim();
+    if (!raw) {
+      throw createError(400, 'Номер телефона обязателен');
+    }
+
+    // Принимаем: +77077707600 или 77077707600
+    const cleaned = raw.replace(/\s+/g, '').replace(/^\+/, '');
+    const phoneRegex = /^7\d{10}$/;
+    if (!phoneRegex.test(cleaned)) {
+      throw createError(400, 'Неверный формат номера телефона. Используйте +77077707600 или 77077707600');
+    }
+
+    return cleaned;
+  }
+
+  private static normalizeWhatsAppCode(code: unknown): string {
+    const value = String(code ?? '').trim();
+    if (!value) {
+      throw createError(400, 'Код обязателен');
+    }
+    if (!/^\d{4,8}$/.test(value)) {
+      throw createError(400, 'Код должен состоять из 4-8 цифр');
+    }
+    return value;
+  }
+
+  private static async sendWhatsAppTemplateCode(phoneNumber: string, code: string): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+    try {
+      const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+      const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID || '958088394044701';
+
+      if (!accessToken) {
+        return { ok: false, error: 'WHATSAPP_ACCESS_TOKEN не установлен' };
+      }
+
+      const response = await axios.post(
+        `https://graph.facebook.com/v21.0/${phoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          to: phoneNumber,
+          type: 'template',
+          template: {
+            name: 'r2',
+            language: { code: 'ru' },
+            components: [
+              {
+                type: 'body',
+                parameters: [{ type: 'text', text: code }]
+              }
+            ]
+          }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const messageId = response?.data?.messages?.[0]?.id;
+      return { ok: true, messageId };
+    } catch (err: any) {
+      const error = err?.response?.data ? JSON.stringify(err.response.data) : (err?.message || 'Unknown error');
+      return { ok: false, error };
+    }
+  }
 
   private static toNumber(value: unknown, fieldName: string): number {
     const parsed = typeof value === 'number' ? value : Number(String(value).replace(',', '.'));
@@ -1450,5 +1540,80 @@ export class BusinessController {
     }
   }
 
-  
+  /**
+   * Отправка кода через WhatsApp от имени бизнеса (WhatsApp Cloud API)
+   * POST /api/businesses/whatsapp/send-code
+   * Auth: Authorization: Bearer <business_token>
+   * Body: { phone: string, code: string } где phone = login пользователя
+   * Также поддерживает alias: { login: string, code: string }
+   */
+  static async sendWhatsAppCode(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const businessId = req.business?.business_id;
+      if (!businessId) {
+        throw createError(401, 'Требуется авторизация бизнеса');
+      }
+
+      const body: any = req.body ?? {};
+      const code = BusinessController.normalizeWhatsAppCode(body.code);
+
+      let userId: number | null = null;
+      let userLogin: string | null = null;
+      let phone: string;
+
+      // Номер телефона = login в users. Принимаем поле phone (основное) или login (alias).
+      const incomingLogin = body.phone ?? body.login;
+      const normalizedLogin = BusinessController.normalizeUserLoginPhone(incomingLogin);
+
+      const user = await prisma.user.findFirst({
+        where: { login: normalizedLogin },
+        select: { user_id: true, login: true }
+      });
+
+      if (!user?.login) {
+        throw createError(404, 'Пользователь с таким номером телефона (login) не найден');
+      }
+
+      userId = user.user_id;
+      userLogin = user.login;
+      phone = BusinessController.normalizePhoneForWhatsApp(user.login);
+
+      const codeHash = await bcrypt.hash(code, 10);
+
+      const sendResult = await BusinessController.sendWhatsAppTemplateCode(phone, code);
+      const status = sendResult.ok ? 'sent' : 'failed';
+
+      await prisma.business_whatsapp_codes.create({
+        data: {
+          business_id: businessId,
+          user_id: userId,
+          user_login: userLogin,
+          phone_number: phone,
+          code_hash: codeHash,
+          template_name: 'r2',
+          status,
+          message_id: sendResult.messageId ?? null,
+          error_message: sendResult.error ?? null
+        }
+      });
+
+      if (!sendResult.ok) {
+        throw createError(502, 'Не удалось отправить код через WhatsApp');
+      }
+
+      res.json({
+        success: true,
+        data: {
+          user_id: userId,
+          login: userLogin,
+          phone,
+          status,
+          message_id: sendResult.messageId ?? null
+        },
+        message: 'Код отправлен через WhatsApp'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

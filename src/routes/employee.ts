@@ -94,6 +94,12 @@ router.post('/promotions',
   EmployeeController.createPromotion
 );
 
+// POST /api/employee/promotions/auto - Автоматически создать акцию и детали (PERCENT/SUBTRACT)
+router.post('/promotions/auto',
+  requireAccessLevel('SUPERVISOR'),
+  EmployeeController.createPromotionAuto
+);
+
 // PUT /api/employee/promotions/:id - Обновить акцию
 router.put('/promotions/:id', 
   requireAccessLevel('SUPERVISOR'), 

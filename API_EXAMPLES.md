@@ -301,7 +301,7 @@ curl -X GET "http://localhost:3000/api/auth/profile" \
 }
 ```
 
-### Заказ с примененной акцией DISCOUNT (скидка 15%)
+### Заказ с примененной акцией PERCENT (скидка 15%)
 ```json
 {
   "success": true,
@@ -313,7 +313,7 @@ curl -X GET "http://localhost:3000/api/auth/profile" \
     "promotions_applied": [
       {
         "item_id": 2407,
-        "promotion_type": "DISCOUNT",
+        "promotion_type": "PERCENT",
         "promotion_name": "Скидка 15%",
         "original_price": 1500,
         "discounted_price": 1275,

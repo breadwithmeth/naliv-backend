@@ -1705,16 +1705,26 @@ export class EmployeeController {
    */
   static async createPromotion(req: EmployeeAuthRequest, res: Response, next: NextFunction) {
     try {
-      const { name, start_promotion_date, end_promotion_date, business_id, cover, visible } = req.body;
+      const { name, start_promotion_date, end_promotion_date, business_id, cover, visible, details } = req.body;
 
       // Валидация обязательных полей
       if (!name || !start_promotion_date || !end_promotion_date || !business_id) {
         return next(createError(400, 'Отсутствуют обязательные поля: name, start_promotion_date, end_promotion_date, business_id'));
       }
 
+      // Требуем детали акции при создании (иначе появятся "пустые" промо)
+      if (!Array.isArray(details) || details.length === 0) {
+        return next(createError(400, 'Акция должна содержать хотя бы одну деталь (details) с item_id. Используйте /api/employee/promotions/auto для автосоздания.'));
+      }
+
+      const parsedBusinessId = parseInt(business_id);
+      if (isNaN(parsedBusinessId)) {
+        return next(createError(400, 'Неверный business_id'));
+      }
+
       // Проверка существования бизнеса
       const business = await prisma.businesses.findUnique({
-        where: { business_id: parseInt(business_id) }
+        where: { business_id: parsedBusinessId }
       });
 
       if (!business) {
@@ -1729,15 +1739,86 @@ export class EmployeeController {
         return next(createError(400, 'Дата окончания должна быть позже даты начала'));
       }
 
-      const promotion = await prisma.marketing_promotions.create({
-        data: {
-          name,
-          start_promotion_date: startDate,
-          end_promotion_date: endDate,
-          business_id: parseInt(business_id),
-          cover: cover || '',
-          visible: visible !== undefined ? (visible ? 1 : 0) : 1
+      // Валидация деталей + проверка, что товары принадлежат бизнесу
+      const normalizedDetails = details.map((d: any) => {
+        const itemId = typeof d.item_id === 'string' ? parseInt(d.item_id) : Number(d.item_id);
+        if (!Number.isFinite(itemId)) {
+          throw createError(400, 'Неверный item_id в details');
         }
+
+        const normalizedType = d.type === 'DISCOUNT' ? 'PERCENT' : d.type;
+        if (!['SUBTRACT', 'PERCENT'].includes(normalizedType)) {
+          throw createError(400, 'Неверный type в details. Допустимые значения: SUBTRACT, PERCENT');
+        }
+
+        if (normalizedType === 'PERCENT') {
+          const discountValue = d.discount !== undefined ? (typeof d.discount === 'string' ? parseFloat(d.discount) : Number(d.discount)) : NaN;
+          if (!Number.isFinite(discountValue) || discountValue < 0 || discountValue > 100) {
+            throw createError(400, 'Для типа PERCENT discount должен быть от 0 до 100');
+          }
+          return {
+            item_id: itemId,
+            type: normalizedType,
+            name: d.name || name,
+            discount: discountValue,
+            base_amount: null,
+            add_amount: null
+          };
+        }
+
+        const base = d.base_amount !== undefined ? (typeof d.base_amount === 'string' ? parseFloat(d.base_amount) : Number(d.base_amount)) : NaN;
+        const add = d.add_amount !== undefined ? (typeof d.add_amount === 'string' ? parseFloat(d.add_amount) : Number(d.add_amount)) : NaN;
+        if (!Number.isFinite(base) || !Number.isFinite(add) || base <= 0 || add <= 0) {
+          throw createError(400, 'Для типа SUBTRACT base_amount и add_amount должны быть больше 0');
+        }
+        return {
+          item_id: itemId,
+          type: normalizedType,
+          name: d.name || name,
+          discount: null,
+          base_amount: base,
+          add_amount: add
+        };
+      });
+
+      const uniqueItemIds = Array.from(new Set(normalizedDetails.map((d: any) => d.item_id)));
+      const items = await prisma.items.findMany({
+        where: { item_id: { in: uniqueItemIds } },
+        select: { item_id: true, business_id: true }
+      });
+      if (items.length !== uniqueItemIds.length) {
+        return next(createError(404, 'Один или несколько товаров не найдены'));
+      }
+      const foreignItem = items.find(i => i.business_id !== parsedBusinessId);
+      if (foreignItem) {
+        return next(createError(400, 'Товар в details должен принадлежать указанному business_id'));
+      }
+
+      const promotion = await prisma.$transaction(async (tx) => {
+        const createdPromotion = await tx.marketing_promotions.create({
+          data: {
+            name,
+            start_promotion_date: startDate,
+            end_promotion_date: endDate,
+            business_id: parsedBusinessId,
+            cover: cover || '',
+            visible: visible !== undefined ? (visible ? 1 : 0) : 1
+          }
+        });
+
+        await tx.marketing_promotion_details.createMany({
+          data: normalizedDetails.map((d: any) => ({
+            marketing_promotion_id: createdPromotion.marketing_promotion_id,
+            item_id: d.item_id,
+            name: d.name,
+            type: d.type,
+            base_amount: d.base_amount,
+            add_amount: d.add_amount,
+            discount: d.discount
+          }))
+        });
+
+        return createdPromotion;
       });
 
       res.status(201).json({
@@ -1748,6 +1829,238 @@ export class EmployeeController {
 
     } catch (error: any) {
       console.error('Ошибка создания акции:', error);
+      next(createError(500, `Ошибка создания акции: ${error.message}`));
+    }
+  }
+
+  /**
+   * Автоматическое создание акции и ее деталей за один запрос
+   * POST /api/employee/promotions/auto
+   *
+   * @body {number} business_id
+   * @body {string} type - SUBTRACT | PERCENT (также принимается legacy DISCOUNT)
+   * @body {string} [name]
+   * @body {string} [start_promotion_date] - ISO дата/время, по умолчанию сейчас
+   * @body {string} [end_promotion_date] - ISO дата/время
+   * @body {number} [duration_days] - если end_promotion_date не задан, задаст дату окончания = start + duration_days
+   * @body {boolean} [visible=true]
+   * @body {string} [cover]
+   *
+   * Вариант 1 (упрощенный):
+   * @body {number[]} item_ids
+   * @body {number} discount - для PERCENT, 0..100
+   * @body {number} base_amount - для SUBTRACT
+   * @body {number} add_amount - для SUBTRACT
+   *
+   * Вариант 2 (детали вручную):
+   * @body {Array} details - [{ item_id, name?, discount?, base_amount?, add_amount? }]
+   *
+   * Вариант 3 (на все товары бизнеса):
+   * @body {boolean} apply_to_all_items
+   */
+  static async createPromotionAuto(req: EmployeeAuthRequest, res: Response, next: NextFunction) {
+    try {
+      const {
+        business_id,
+        type,
+        name,
+        start_promotion_date,
+        end_promotion_date,
+        duration_days,
+        visible,
+        cover,
+        item_ids,
+        details,
+        discount,
+        base_amount,
+        add_amount,
+        apply_to_all_items
+      } = req.body;
+
+      if (!business_id || !type) {
+        return next(createError(400, 'Отсутствуют обязательные поля: business_id, type'));
+      }
+
+      const normalizedType = type === 'DISCOUNT' ? 'PERCENT' : type;
+      if (!['SUBTRACT', 'PERCENT'].includes(normalizedType)) {
+        return next(createError(400, 'Неверный type. Допустимые значения: SUBTRACT, PERCENT'));
+      }
+
+      const parsedBusinessId = parseInt(business_id);
+      if (isNaN(parsedBusinessId)) {
+        return next(createError(400, 'Неверный business_id'));
+      }
+
+      const business = await prisma.businesses.findUnique({
+        where: { business_id: parsedBusinessId }
+      });
+      if (!business) {
+        return next(createError(404, 'Бизнес не найден'));
+      }
+
+      const startDate = start_promotion_date ? new Date(start_promotion_date) : new Date();
+      if (isNaN(startDate.getTime())) {
+        return next(createError(400, 'Неверный формат start_promotion_date'));
+      }
+
+      let endDate: Date | null = null;
+      if (end_promotion_date) {
+        endDate = new Date(end_promotion_date);
+        if (isNaN(endDate.getTime())) {
+          return next(createError(400, 'Неверный формат end_promotion_date'));
+        }
+      } else if (duration_days !== undefined && duration_days !== null) {
+        const days = typeof duration_days === 'string' ? parseInt(duration_days) : Number(duration_days);
+        if (!Number.isFinite(days) || days <= 0) {
+          return next(createError(400, 'duration_days должен быть числом больше 0'));
+        }
+        endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + days);
+      } else {
+        // по умолчанию 7 дней
+        endDate = new Date(startDate);
+        endDate.setDate(endDate.getDate() + 7);
+      }
+
+      if (!endDate || endDate <= startDate) {
+        return next(createError(400, 'Дата окончания должна быть позже даты начала'));
+      }
+
+      // Собираем детали акции
+      type AutoDetail = {
+        item_id: number;
+        name?: string;
+        discount?: number | string;
+        base_amount?: number | string;
+        add_amount?: number | string;
+      };
+
+      let resolvedDetails: AutoDetail[] = Array.isArray(details) ? details : [];
+
+      // Если детали не переданы, генерируем из item_ids/apply_to_all_items
+      if (resolvedDetails.length === 0) {
+        let itemIds: number[] = [];
+        if (apply_to_all_items) {
+          const items = await prisma.items.findMany({
+            where: { business_id: parsedBusinessId, visible: 1 },
+            select: { item_id: true }
+          });
+          itemIds = items.map(i => i.item_id);
+        } else if (Array.isArray(item_ids)) {
+          itemIds = item_ids
+            .map((id: any) => (typeof id === 'string' ? parseInt(id) : Number(id)))
+            .filter((id: number) => Number.isFinite(id));
+        }
+
+        if (itemIds.length === 0) {
+          return next(createError(400, 'Нужно передать details или item_ids, либо включить apply_to_all_items'));
+        }
+
+        if (normalizedType === 'PERCENT') {
+          const discountValue = discount !== undefined ? (typeof discount === 'string' ? parseFloat(discount) : Number(discount)) : NaN;
+          if (!Number.isFinite(discountValue) || discountValue < 0 || discountValue > 100) {
+            return next(createError(400, 'Для типа PERCENT требуется discount от 0 до 100'));
+          }
+          resolvedDetails = itemIds.map((item_id: number) => ({ item_id, discount: discountValue }));
+        } else {
+          const base = base_amount !== undefined ? (typeof base_amount === 'string' ? parseFloat(base_amount) : Number(base_amount)) : NaN;
+          const add = add_amount !== undefined ? (typeof add_amount === 'string' ? parseFloat(add_amount) : Number(add_amount)) : NaN;
+          if (!Number.isFinite(base) || !Number.isFinite(add) || base <= 0 || add <= 0) {
+            return next(createError(400, 'Для типа SUBTRACT требуются base_amount и add_amount больше 0'));
+          }
+          resolvedDetails = itemIds.map((item_id: number) => ({ item_id, base_amount: base, add_amount: add }));
+        }
+      }
+
+      // Валидация деталей + собираем item_ids
+      const detailItemIds: number[] = [];
+      for (const d of resolvedDetails) {
+        const itemId = typeof d.item_id === 'string' ? parseInt(d.item_id as any) : Number(d.item_id);
+        if (!Number.isFinite(itemId)) {
+          return next(createError(400, 'Некорректный item_id в details'));
+        }
+        detailItemIds.push(itemId);
+
+        if (normalizedType === 'PERCENT') {
+          const discountValue = d.discount !== undefined ? (typeof d.discount === 'string' ? parseFloat(d.discount) : Number(d.discount)) : NaN;
+          if (!Number.isFinite(discountValue) || discountValue < 0 || discountValue > 100) {
+            return next(createError(400, 'Для типа PERCENT discount должен быть от 0 до 100'));
+          }
+        } else {
+          const base = d.base_amount !== undefined ? (typeof d.base_amount === 'string' ? parseFloat(d.base_amount) : Number(d.base_amount)) : NaN;
+          const add = d.add_amount !== undefined ? (typeof d.add_amount === 'string' ? parseFloat(d.add_amount) : Number(d.add_amount)) : NaN;
+          if (!Number.isFinite(base) || !Number.isFinite(add) || base <= 0 || add <= 0) {
+            return next(createError(400, 'Для типа SUBTRACT base_amount и add_amount должны быть больше 0'));
+          }
+        }
+      }
+
+      // Проверяем существование всех товаров
+      const uniqueItemIds = Array.from(new Set(detailItemIds));
+      const itemsCount = await prisma.items.count({
+        where: { item_id: { in: uniqueItemIds } }
+      });
+      if (itemsCount !== uniqueItemIds.length) {
+        return next(createError(404, 'Один или несколько товаров не найдены'));
+      }
+
+      // Дефолтное имя
+      let promotionName = name;
+      if (!promotionName) {
+        if (normalizedType === 'PERCENT') {
+          const anyDiscount = resolvedDetails[0]?.discount;
+          promotionName = `Скидка ${anyDiscount ?? ''}%`;
+        } else {
+          const anyBase = resolvedDetails[0]?.base_amount;
+          const anyAdd = resolvedDetails[0]?.add_amount;
+          promotionName = `Акция ${anyBase ?? ''}+${anyAdd ?? ''}`;
+        }
+      }
+
+      const transactionResult = await prisma.$transaction(async (tx) => {
+        const promotion = await tx.marketing_promotions.create({
+          data: {
+            name: promotionName,
+            start_promotion_date: startDate,
+            end_promotion_date: endDate,
+            business_id: parsedBusinessId,
+            cover: cover || '',
+            visible: visible !== undefined ? (visible ? 1 : 0) : 1
+          }
+        });
+
+        // Создаем детали
+        await tx.marketing_promotion_details.createMany({
+          data: resolvedDetails.map((d) => ({
+            marketing_promotion_id: promotion.marketing_promotion_id,
+            item_id: Number(d.item_id),
+            type: normalizedType,
+            name: d.name || promotionName,
+            base_amount: normalizedType === 'SUBTRACT' ? (d.base_amount !== undefined ? Number(d.base_amount) : null) : null,
+            add_amount: normalizedType === 'SUBTRACT' ? (d.add_amount !== undefined ? Number(d.add_amount) : null) : null,
+            discount: normalizedType === 'PERCENT' ? (d.discount !== undefined ? Number(d.discount) : null) : null
+          }))
+        });
+
+        const createdDetails = await tx.marketing_promotion_details.findMany({
+          where: { marketing_promotion_id: promotion.marketing_promotion_id },
+          orderBy: { detail_id: 'asc' }
+        });
+
+        return { promotion, details: createdDetails };
+      });
+
+      res.status(201).json({
+        success: true,
+        data: {
+          promotion: transactionResult.promotion,
+          details: transactionResult.details,
+          created_details_count: transactionResult.details.length
+        },
+        message: 'Акция и детали успешно созданы'
+      });
+    } catch (error: any) {
+      console.error('Ошибка авто-создания акции:', error);
       next(createError(500, `Ошибка создания акции: ${error.message}`));
     }
   }
@@ -1882,8 +2195,10 @@ export class EmployeeController {
 
       const { type, base_amount, add_amount, item_id, name, discount } = req.body;
 
+      const normalizedType = type === 'DISCOUNT' ? 'PERCENT' : type;
+
       // Валидация обязательных полей
-      if (!type || !item_id) {
+      if (!normalizedType || !item_id) {
         return next(createError(400, 'Отсутствуют обязательные поля: type, item_id'));
       }
 
@@ -1900,13 +2215,21 @@ export class EmployeeController {
       const item = await prisma.items.findUnique({
         where: { item_id: parseInt(item_id) }
       });
-
       if (!item) {
         return next(createError(404, 'Товар не найден'));
       }
 
+      // Товар должен принадлежать бизнесу акции
+      if (item.business_id !== promotion.business_id) {
+        return next(createError(400, 'Товар должен принадлежать бизнесу акции'));
+      }
+
       // Валидация типа акции
-      if (type === 'SUBTRACT') {
+      if (!['SUBTRACT', 'PERCENT'].includes(normalizedType)) {
+        return next(createError(400, 'Неверный type. Допустимые значения: SUBTRACT, PERCENT'));
+      }
+
+      if (normalizedType === 'SUBTRACT') {
         if (!base_amount || !add_amount) {
           return next(createError(400, 'Для типа SUBTRACT требуются base_amount и add_amount'));
         }
@@ -1921,7 +2244,7 @@ export class EmployeeController {
 
       const detail = await prisma.marketing_promotion_details.create({
         data: {
-          type,
+          type: normalizedType,
           base_amount: base_amount ? parseFloat(base_amount) : null,
           add_amount: add_amount ? parseFloat(add_amount) : null,
           marketing_promotion_id,
@@ -1957,6 +2280,8 @@ export class EmployeeController {
 
       const { type, base_amount, add_amount, item_id, name, discount } = req.body;
 
+      const normalizedRequestedType = type === 'DISCOUNT' ? 'PERCENT' : type;
+
       // Проверяем существование детали
       const detail = await prisma.marketing_promotion_details.findUnique({
         where: { detail_id }
@@ -1975,10 +2300,27 @@ export class EmployeeController {
         if (!item) {
           return next(createError(404, 'Товар не найден'));
         }
+
+        // Товар должен принадлежать бизнесу акции
+        const promotion = await prisma.marketing_promotions.findUnique({
+          where: { marketing_promotion_id: detail.marketing_promotion_id }
+        });
+        if (!promotion) {
+          return next(createError(404, 'Акция не найдена'));
+        }
+        if (item.business_id !== promotion.business_id) {
+          return next(createError(400, 'Товар должен принадлежать бизнесу акции'));
+        }
       }
 
       // Валидация типа акции
-      const finalType = type || detail.type;
+      const finalTypeRaw = normalizedRequestedType || detail.type;
+      const finalType = finalTypeRaw === 'DISCOUNT' ? 'PERCENT' : finalTypeRaw;
+
+      if (!['SUBTRACT', 'PERCENT'].includes(finalType)) {
+        return next(createError(400, 'Неверный type. Допустимые значения: SUBTRACT, PERCENT'));
+      }
+
       if (finalType === 'SUBTRACT') {
         const finalBaseAmount = base_amount !== undefined ? parseFloat(base_amount) : (detail.base_amount ? parseFloat(detail.base_amount.toString()) : null);
         const finalAddAmount = add_amount !== undefined ? parseFloat(add_amount) : (detail.add_amount ? parseFloat(detail.add_amount.toString()) : null);
@@ -1998,7 +2340,7 @@ export class EmployeeController {
       const updatedDetail = await prisma.marketing_promotion_details.update({
         where: { detail_id },
         data: {
-          ...(type && { type }),
+          ...(normalizedRequestedType && { type: normalizedRequestedType }),
           ...(base_amount !== undefined && { base_amount: parseFloat(base_amount) }),
           ...(add_amount !== undefined && { add_amount: parseFloat(add_amount) }),
           ...(item_id && { item_id: parseInt(item_id) }),
@@ -2038,6 +2380,14 @@ export class EmployeeController {
 
       if (!detail) {
         return next(createError(404, 'Деталь акции не найдена'));
+      }
+
+      // Запрещаем удалять последнюю деталь (иначе акция останется без item)
+      const detailsCount = await prisma.marketing_promotion_details.count({
+        where: { marketing_promotion_id: detail.marketing_promotion_id }
+      });
+      if (detailsCount <= 1) {
+        return next(createError(400, 'Нельзя удалить последнюю деталь акции. Сначала удалите саму акцию.'));
       }
 
       await prisma.marketing_promotion_details.delete({

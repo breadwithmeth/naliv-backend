@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { BusinessOrderController } from '../controllers/businessOrderController';
+import { BusinessPromotionController } from '../controllers/businessPromotionController';
 import { authenticateBusinessToken } from '../middleware/businessAuth';
 
 const router = Router();
@@ -22,4 +23,7 @@ router.patch('/orders/:id/status', BusinessOrderController.updateOrderStatus);
 
 // Обновление количества товара в заказе
 router.patch('/orders/:id/items/:itemRelationId', BusinessOrderController.updateOrderItemQuantity);
+
+// Автоматическое создание акции/скидки
+router.post('/promotions/auto', BusinessPromotionController.createPromotionAuto);
 export { router as businessOrderRoutes };

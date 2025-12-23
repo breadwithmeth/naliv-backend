@@ -531,6 +531,24 @@ model phone_number_verify {
   is_used         Int      @default(0)
 }
 
+model business_whatsapp_codes {
+  business_whatsapp_code_id BigInt   @id @default(autoincrement()) @db.UnsignedBigInt
+  business_id               Int
+  user_id                   Int?
+  user_login                String?  @db.VarChar(255)
+  phone_number              String   @db.VarChar(30)
+  code_hash                 String   @db.VarChar(255)
+  template_name             String   @default("r2") @db.VarChar(64)
+  status                    String   @db.VarChar(20)
+  message_id                String?  @db.VarChar(128)
+  error_message             String?  @db.Text
+  log_timestamp             DateTime @default(now()) @db.Timestamp(0)
+
+  @@index([business_id, log_timestamp], map: "idx_business_ts")
+  @@index([user_id, log_timestamp], map: "idx_user_ts")
+  @@index([phone_number, log_timestamp], map: "idx_phone_ts")
+}
+
 model pick_up_areas {
   pick_up_area_id Int                    @id @default(autoincrement())
   borders         Unsupported("polygon")

@@ -15,6 +15,7 @@ Authorization: Bearer <employee_jwt_token>
 | GET | `/api/employee/promotions` | Список всех акций |
 | GET | `/api/employee/promotions/:id` | Получить акцию по ID |
 | POST | `/api/employee/promotions` | Создать акцию |
+| POST | `/api/employee/promotions/auto` | Автоматически создать акцию + детали |
 | PUT | `/api/employee/promotions/:id` | Обновить акцию |
 | DELETE | `/api/employee/promotions/:id` | Удалить акцию (+ детали и истории) |
 
@@ -27,7 +28,22 @@ POST /api/employee/promotions
   "end_promotion_date": "2025-01-10T23:59:59Z",
   "business_id": 1,
   "cover": "https://example.com/cover.jpg",
-  "visible": true
+  "visible": true,
+  "details": [
+    { "type": "PERCENT", "item_id": 200, "discount": 20 }
+  ]
+}
+```
+
+### Авто-создание акции и деталей
+```json
+POST /api/employee/promotions/auto
+{
+  "business_id": 1,
+  "type": "PERCENT",
+  "discount": 15,
+  "item_ids": [100, 101],
+  "duration_days": 7
 }
 ```
 
@@ -57,7 +73,7 @@ POST /api/employee/promotions/1/details
 ```json
 POST /api/employee/promotions/1/details
 {
-  "type": "PERCENTAGE",
+  "type": "PERCENT",
   "item_id": 200,
   "discount": 20
 }

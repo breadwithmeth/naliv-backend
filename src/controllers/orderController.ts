@@ -881,13 +881,13 @@ export class OrderController {
                 itemCost = itemPrice * chargedAmount;
                 console.log(`Применена акция SUBTRACT для товара ${item.item_id}: было ${itemAmount}, к оплате ${chargedAmount}`);
               }
-            } else if (promotionDetail.type === 'DISCOUNT') {
-              // Акция типа DISCOUNT: скидка в процентах
+            } else if (promotionDetail.type === 'PERCENT' || promotionDetail.type === 'DISCOUNT') {
+              // Акция типа PERCENT (legacy DISCOUNT): скидка в процентах
               const discountPercent = Number(promotionDetail.discount || 0);
               if (discountPercent > 0) {
                 const discountAmount = (itemCost * discountPercent) / 100;
                 itemCost = itemCost - discountAmount;
-                console.log(`Применена акция DISCOUNT для товара ${item.item_id}: скидка ${discountPercent}%, сумма со скидкой ${itemCost}`);
+                console.log(`Применена акция PERCENT для товара ${item.item_id}: скидка ${discountPercent}%, сумма со скидкой ${itemCost}`);
               }
             }
           }
@@ -983,13 +983,13 @@ export class OrderController {
                 itemCost = itemPrice * chargedAmount;
                 console.log(`Применена акция SUBTRACT для товара ${item.item_id}: было ${itemAmount}, к оплате ${chargedAmount}`);
               }
-            } else if (promotionDetail.type === 'DISCOUNT') {
-              // Акция типа DISCOUNT: скидка в процентах
+            } else if (promotionDetail.type === 'PERCENT' || promotionDetail.type === 'DISCOUNT') {
+              // Акция типа PERCENT (legacy DISCOUNT): скидка в процентах
               const discountPercent = Number(promotionDetail.discount || 0);
               if (discountPercent > 0) {
                 const discountAmount = (itemCost * discountPercent) / 100;
                 itemCost = itemCost - discountAmount;
-                console.log(`Применена акция DISCOUNT для товара ${item.item_id}: скидка ${discountPercent}%, сумма со скидкой ${itemCost}`);
+                console.log(`Применена акция PERCENT для товара ${item.item_id}: скидка ${discountPercent}%, сумма со скидкой ${itemCost}`);
               }
             }
           }
@@ -1971,7 +1971,7 @@ export class OrderController {
   }
 
   /**
-   * Применить акции типа DISCOUNT к товару
+   * Применить процентную скидку (тип PERCENT; legacy DISCOUNT)
    */
   private static calculateDiscountPromotion(
     quantity: number,
@@ -2021,8 +2021,8 @@ export class OrderController {
               );
               discount = (calculation.originalQuantity - calculation.chargedQuantity) * item.price;
               
-            } else if (detail.type === 'DISCOUNT' && detail.discount) {
-              // Процентная скидка
+            } else if ((detail.type === 'PERCENT' || detail.type === 'DISCOUNT') && detail.discount) {
+              // Процентная скидка (PERCENT; legacy DISCOUNT)
               calculation = this.calculateDiscountPromotion(
                 item.amount,
                 item.price,
@@ -2051,8 +2051,8 @@ export class OrderController {
           // Для акций SUBTRACT - меняется количество к оплате
           chargedAmount = bestPromotion.chargedQuantity;
           discountedCost = chargedAmount * item.price;
-        } else if (bestPromotion.promotion?.type === 'DISCOUNT') {
-          // Для акций DISCOUNT - меняется цена за единицу
+        } else if (bestPromotion.promotion?.type === 'PERCENT' || bestPromotion.promotion?.type === 'DISCOUNT') {
+          // Для акций PERCENT (legacy DISCOUNT) - меняется цена за единицу
           chargedAmount = item.amount;
           discountedCost = item.amount * bestPromotion.discountedPrice!;
         }

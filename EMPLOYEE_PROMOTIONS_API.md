@@ -104,7 +104,15 @@ curl -X GET "http://localhost:3000/api/employee/promotions/1" \
   "end_promotion_date": "2025-01-10T23:59:59Z",
   "business_id": 1,
   "cover": "https://example.com/new-year-promo.jpg",
-  "visible": true
+  "visible": true,
+  "details": [
+    {
+      "type": "PERCENT",
+      "item_id": 100,
+      "discount": 15,
+      "name": "Скидка 15%"
+    }
+  ]
 }
 ```
 
@@ -113,6 +121,7 @@ curl -X GET "http://localhost:3000/api/employee/promotions/1" \
 - `start_promotion_date` - Дата начала (ISO 8601)
 - `end_promotion_date` - Дата окончания (ISO 8601)
 - `business_id` - ID бизнеса
+- `details` - Массив деталей акции (минимум 1), каждая деталь обязана содержать `item_id`
 
 #### Опциональные поля:
 - `cover` - URL обложки (по умолчанию: `""`)
@@ -134,11 +143,64 @@ curl -X POST "http://localhost:3000/api/employee/promotions" \
 #### Валидация:
 - Дата окончания должна быть позже даты начала
 - Бизнес должен существовать
+- Акция не может быть создана без деталей
+- Товары в `details` должны принадлежать указанному `business_id`
 
 #### Ответы:
 - **201 Created** - Акция создана
 - **400 Bad Request** - Ошибка валидации
 - **404 Not Found** - Бизнес не найден
+
+---
+
+### 3.1. Автоматически создать акцию и детали
+**POST** `/api/employee/promotions/auto`
+
+Создает `marketing_promotions` и набор `marketing_promotion_details` за один запрос.
+
+#### Поддерживаемые типы:
+- `SUBTRACT` - акция N+M
+- `PERCENT` - процентная скидка
+
+Также принимается legacy `DISCOUNT` (будет нормализован в `PERCENT`).
+
+#### Вариант A: скидка на список товаров
+```json
+{
+  "business_id": 1,
+  "type": "PERCENT",
+  "discount": 15,
+  "item_ids": [100, 101, 102],
+  "duration_days": 7,
+  "visible": true
+}
+```
+
+#### Вариант B: акция 2+1 на все товары бизнеса
+```json
+{
+  "business_id": 1,
+  "type": "SUBTRACT",
+  "base_amount": 2,
+  "add_amount": 1,
+  "apply_to_all_items": true,
+  "duration_days": 14
+}
+```
+
+#### Вариант C: детали вручную
+```json
+{
+  "business_id": 1,
+  "type": "PERCENT",
+  "start_promotion_date": "2025-12-18T10:00:00.000Z",
+  "end_promotion_date": "2025-12-25T10:00:00.000Z",
+  "details": [
+    { "item_id": 100, "discount": 10 },
+    { "item_id": 101, "discount": 25 }
+  ]
+}
+```
 
 ---
 
