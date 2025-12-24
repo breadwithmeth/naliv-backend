@@ -21,6 +21,10 @@ router.post('/send-code', AuthController.sendCode);
 // Body: { "phone_number": "+77077707600", "onetime_code": "1234" }
 router.post('/verify-code', AuthController.verifyCode);
 
+// POST /api/auth/refresh - Обновить JWT по session_token (после входа по коду)
+// Body: { "session_token": "..." }
+router.post('/refresh', AuthController.refreshSession);
+
 // POST /api/auth/logout - Выход из системы (требует авторизации)
 // Headers: { "Authorization": "Bearer <token>" }
 router.post('/logout', authenticateToken, AuthController.logout);

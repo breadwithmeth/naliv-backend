@@ -649,6 +649,75 @@ export class AuthController {
   }
 
   /**
+   * Обновление JWT по session_token (refresh) после авторизации по одноразовому коду
+   * POST /auth/refresh
+   * Body: { session_token: string }
+   */
+  static async refreshSession(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const { session_token } = req.body as { session_token?: string };
+      const token = String(session_token ?? '').trim();
+
+      if (!token) {
+        throw createError(400, 'session_token обязателен');
+      }
+
+      // Ищем сессию (refresh token) в users_tokens
+      const session = await prisma.users_tokens.findFirst({
+        where: { token },
+        orderBy: { log_timestamp: 'desc' }
+      });
+
+      if (!session) {
+        throw createError(401, 'Недействительный session_token');
+      }
+
+      const user = await prisma.user.findUnique({
+        where: { user_id: session.user_id }
+      });
+
+      if (!user) {
+        // На всякий случай чистим висячую сессию
+        await prisma.users_tokens.deleteMany({ where: { token } });
+        throw createError(401, 'Пользователь не найден');
+      }
+
+      // Ротируем session_token (обновляем запись)
+      const newSessionToken = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${user.user_id}`;
+      await prisma.users_tokens.update({
+        where: { token_id: session.token_id },
+        data: {
+          token: newSessionToken,
+          log_timestamp: new Date()
+        }
+      });
+
+      const jwtPayload: JWTPayload = {
+        user_id: user.user_id,
+        login: user.login || ''
+      };
+      const jwtToken = AuthController.generateToken(jwtPayload);
+
+      res.json({
+        success: true,
+        data: {
+          token: jwtToken,
+          session_token: newSessionToken,
+          user: {
+            user_id: user.user_id,
+            name: user.name,
+            login: user.login,
+            log_timestamp: user.log_timestamp
+          }
+        },
+        message: 'Токен обновлен'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
    * Отправка одноразового кода через WhatsApp
    * POST /auth/send-code
    */
