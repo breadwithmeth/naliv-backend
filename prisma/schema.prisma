@@ -389,6 +389,7 @@ model marketing_promotion_stories {
 model marketing_promotions {
   marketing_promotion_id Int      @id @default(autoincrement())
   name                   String?  @db.VarChar(255)
+  public_name            String?  @db.VarChar(255)
   start_promotion_date   DateTime @db.DateTime(0)
   end_promotion_date     DateTime @db.DateTime(0)
   business_id            Int

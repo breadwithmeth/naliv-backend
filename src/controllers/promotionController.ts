@@ -32,9 +32,18 @@ export class PromotionController {
         skip: parseInt(offset as string)
       });
       console.log(`✅ Найдено ${promotions.length} акций`);
+
+      // Для обычных клиентов показываем public_name как name
+      const publicPromotions = promotions.map((p: any) => {
+        const { public_name, ...rest } = p;
+        return {
+          ...rest,
+          name: (public_name ?? rest.name) ?? null
+        };
+      });
       res.json({
         success: true,
-        data: promotions,
+        data: publicPromotions,
         message: 'Активные акции получены'
       });
     } catch (error: any) {
@@ -91,7 +100,7 @@ export class PromotionController {
           data: {
             promotion: {
               marketing_promotion_id: promotion.marketing_promotion_id,
-              name: promotion.name,
+              name: ((promotion as any).public_name ?? promotion.name) ?? null,
               start_promotion_date: promotion.start_promotion_date,
               end_promotion_date: promotion.end_promotion_date
             },

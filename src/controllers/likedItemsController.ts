@@ -121,6 +121,7 @@ export class LikedItemsController {
           select: {
             marketing_promotion_id: true,
             name: true,
+            public_name: true,
             start_promotion_date: true,
             end_promotion_date: true
           }
@@ -151,7 +152,10 @@ export class LikedItemsController {
               add_amount: detail.add_amount ? Number(detail.add_amount) : null,
               discount: detail.discount ? Number(detail.discount) : null,
               name: detail.name,
-              promotion: promoInfo
+              promotion: promoInfo ? (() => {
+                const { public_name, ...rest } = promoInfo as any;
+                return { ...rest, name: (public_name ?? rest.name) ?? null };
+              })() : null
             });
           }
         }

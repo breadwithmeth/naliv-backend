@@ -1145,7 +1145,7 @@ export class BusinessController {
 
         return {
           marketing_promotion_id: promo.marketing_promotion_id,
-          name: promo.name,
+          name: ((promo as any).public_name ?? promo.name) ?? null,
           start_promotion_date: promo.start_promotion_date,
           end_promotion_date: promo.end_promotion_date,
           visible: promo.visible,

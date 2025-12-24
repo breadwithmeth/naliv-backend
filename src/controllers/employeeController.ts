@@ -1705,7 +1705,7 @@ export class EmployeeController {
    */
   static async createPromotion(req: EmployeeAuthRequest, res: Response, next: NextFunction) {
     try {
-      const { name, start_promotion_date, end_promotion_date, business_id, cover, visible, details } = req.body;
+      const { name, public_name, start_promotion_date, end_promotion_date, business_id, cover, visible, details } = req.body;
 
       // Валидация обязательных полей
       if (!name || !start_promotion_date || !end_promotion_date || !business_id) {
@@ -1798,6 +1798,7 @@ export class EmployeeController {
         const createdPromotion = await tx.marketing_promotions.create({
           data: {
             name,
+            public_name: public_name ?? name ?? null,
             start_promotion_date: startDate,
             end_promotion_date: endDate,
             business_id: parsedBusinessId,
@@ -1864,6 +1865,7 @@ export class EmployeeController {
         business_id,
         type,
         name,
+        public_name,
         start_promotion_date,
         end_promotion_date,
         duration_days,
@@ -2021,6 +2023,7 @@ export class EmployeeController {
         const promotion = await tx.marketing_promotions.create({
           data: {
             name: promotionName,
+            public_name: (public_name ?? promotionName) || null,
             start_promotion_date: startDate,
             end_promotion_date: endDate,
             business_id: parsedBusinessId,
@@ -2077,7 +2080,7 @@ export class EmployeeController {
         return next(createError(400, 'Неверный ID акции'));
       }
 
-      const { name, start_promotion_date, end_promotion_date, business_id, cover, visible } = req.body;
+      const { name, public_name, start_promotion_date, end_promotion_date, business_id, cover, visible } = req.body;
 
       // Проверяем существование акции
       const promotion = await prisma.marketing_promotions.findUnique({
@@ -2111,6 +2114,7 @@ export class EmployeeController {
         where: { marketing_promotion_id },
         data: {
           ...(name && { name }),
+          ...(public_name !== undefined && { public_name }),
           ...(start_promotion_date && { start_promotion_date: startDate }),
           ...(end_promotion_date && { end_promotion_date: endDate }),
           ...(business_id && { business_id: parseInt(business_id) }),

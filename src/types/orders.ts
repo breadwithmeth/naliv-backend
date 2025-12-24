@@ -128,6 +128,7 @@ export interface OrderStatusUpdate {
 export interface MarketingPromotion {
   marketing_promotion_id: number;
   name?: string | null;
+  public_name?: string | null;
   start_promotion_date: Date;
   end_promotion_date: Date;
   business_id: number;

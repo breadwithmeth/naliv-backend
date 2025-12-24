@@ -21,6 +21,7 @@ export class BusinessPromotionController {
       const {
         type,
         name,
+        public_name,
         start_promotion_date,
         end_promotion_date,
         duration_days,
@@ -246,6 +247,7 @@ export class BusinessPromotionController {
         const promotion = await tx.marketing_promotions.create({
           data: {
             name: promotionName,
+            public_name: (public_name ?? promotionName) || null,
             start_promotion_date: startDate,
             end_promotion_date: endDate,
             business_id: businessId,
