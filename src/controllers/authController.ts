@@ -3,7 +3,7 @@ import * as jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import prisma from '../database';
 import { createError } from '../middleware/errorHandler';
-import { randomUUID } from 'crypto';
+import { generateDiscountCardCode12 } from '../utils/discountCardCode';
 import axios from 'axios';
 
 /**
@@ -476,7 +476,7 @@ export class AuthController {
       await prisma.bonus_cards.create({
         data: {
           user_id: userId,
-          card_uuid: randomUUID()
+          card_uuid: generateDiscountCardCode12()
         }
       });
       console.log('[bonus_cards] created', { userId, ts: new Date().toISOString() });

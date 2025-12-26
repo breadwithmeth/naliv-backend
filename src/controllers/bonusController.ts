@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { PrismaClient } from '@prisma/client';
 import { createError } from '../middleware/errorHandler';
 import { AuthRequest } from './authController';
+import { generateDiscountCardCode12 } from '../utils/discountCardCode';
 
 const prisma = new PrismaClient();
 
@@ -81,9 +82,8 @@ export const createBonusCard = async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    // Генерируем UUID для новой карты
-    const { v4: uuidv4 } = require('uuid');
-    const cardUuid = uuidv4();
+    // Генерируем 12-символьный код для новой карты
+    const cardUuid = generateDiscountCardCode12();
 
     // Создаем новую бонусную карту
     const newBonusCard = await prisma.bonus_cards.create({
