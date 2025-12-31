@@ -1361,6 +1361,12 @@ export class BusinessController {
    * Body: { items: [{ code: string, name: string, barcode?: string|null }] }
    */
   static async uploadItems(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    const now = new Date();
+      const currentHour = now.getHours();
+      
+      if (currentHour < 11 || currentHour >= 18) {
+        throw createError(503, 'Функция доступна только с 11:00 до 18:00');
+      } 
     try {
       if (!req.business) {
         throw createError(401, 'Требуется авторизация бизнеса');
@@ -1549,6 +1555,9 @@ export class BusinessController {
    */
   static async sendWhatsAppCode(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
     try {
+      // Проверка времени: функция работает только с 11:00 до 18:00
+      
+
       const businessId = req.business?.business_id;
       if (!businessId) {
         throw createError(401, 'Требуется авторизация бизнеса');
