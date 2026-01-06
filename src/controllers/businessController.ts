@@ -1527,9 +1527,19 @@ export class BusinessController {
         })
         .filter((op): op is ReturnType<typeof prisma.items.update> => op !== null);
 
-      if (updates.length > 0) {
-        await prisma.$transaction(updates);
-      }
+      // Для позиций бизнеса, которых нет в пришедшем прайсе, выставляем остаток 0
+      // (по коду; позиции без кода не трогаем)
+      const zeroOutMissing = prisma.items.updateMany({
+        where: {
+          business_id: businessId,
+          code: { notIn: codes }
+        },
+        data: { amount: 0 }
+      });
+
+      const txOps = [zeroOutMissing, ...updates];
+      const txResult = await prisma.$transaction(txOps);
+      const zeroedMissingCount = (txResult?.[0] as any)?.count;
 
       res.json({
         success: true,
@@ -1537,7 +1547,8 @@ export class BusinessController {
           received: itemsRaw.length,
           normalized: normalized.length,
           updated: updates.length,
-          skipped_not_found: normalized.length - updates.length
+          skipped_not_found: normalized.length - updates.length,
+          zeroed_missing: zeroedMissingCount
         },
         message: 'Цены и остатки успешно загружены'
       });
