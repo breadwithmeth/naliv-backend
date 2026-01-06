@@ -1494,61 +1494,89 @@ export class BusinessController {
         throw createError(400, 'Список цен пуст или имеет неверный формат');
       }
 
-      const codes = Array.from(new Set(normalized.map(i => i.code)));
-
-      const dbItems = await prisma.items.findMany({
-        where: {
-          business_id: businessId,
-          code: { in: codes }
-        },
-        select: { item_id: true, code: true }
-      });
-
-      const itemIdByCode = new Map<string, number>();
-      for (const row of dbItems) {
-        if (!row.code) continue;
-        itemIdByCode.set(String(row.code), row.item_id);
+      // Дедупликация по code: если код встречается несколько раз, берём последнее значение
+      const byCode = new Map<string, { price: number; amount: number }>();
+      for (const it of normalized) {
+        const price = BusinessController.toNumber(it.price, 'Cena/price');
+        const amount = BusinessController.toNumber(it.amount, 'Kol/amount');
+        byCode.set(it.code, { price, amount });
       }
 
-      const updates = normalized
-        .map((it) => {
-          const itemId = itemIdByCode.get(it.code);
-          if (!itemId) return null;
-          const price = BusinessController.toNumber(it.price, 'Cena/price');
-          const amount = BusinessController.toNumber(it.amount, 'Kol/amount');
-          return prisma.items.update({
-            where: { item_id: itemId },
-            data: {
-              price,
-              amount,
-              visible: 1
-            }
-          });
-        })
-        .filter((op): op is ReturnType<typeof prisma.items.update> => op !== null);
+      const codes = Array.from(byCode.keys());
+      const syncTimestamp = new Date();
 
-      // Для позиций бизнеса, которых нет в пришедшем прайсе, выставляем остаток 0
-      // (по коду; позиции без кода не трогаем)
-      const zeroOutMissing = prisma.items.updateMany({
-        where: {
-          business_id: businessId,
-          code: { notIn: codes }
-        },
-        data: { amount: 0 }
-      });
+      // Быстрое обновление по чанкам через один UPDATE на чанк:
+      // UPDATE items JOIN (SELECT ... UNION ALL SELECT ...) v ON v.code = items.code
+      const CHUNK_SIZE = 300;
+      let updated = 0;
 
-      const txOps = [zeroOutMissing, ...updates];
-      const txResult = await prisma.$transaction(txOps);
-      const zeroedMissingCount = (txResult?.[0] as any)?.count;
+      for (let i = 0; i < codes.length; i += CHUNK_SIZE) {
+        const chunkCodes = codes.slice(i, i + CHUNK_SIZE);
+
+        const selectParts: string[] = [];
+        const values: any[] = [];
+
+        for (let idx = 0; idx < chunkCodes.length; idx += 1) {
+          const code = chunkCodes[idx];
+          const v = byCode.get(code);
+          if (!v) continue;
+
+          if (idx === 0) {
+            selectParts.push('SELECT ? AS code, ? AS price, ? AS amount');
+          } else {
+            selectParts.push('UNION ALL SELECT ?, ?, ?');
+          }
+          values.push(code, v.price, v.amount);
+        }
+
+        if (selectParts.length === 0) continue;
+
+        const updateSql = `
+          UPDATE items i
+          INNER JOIN (
+            ${selectParts.join('\n')}
+          ) v ON v.code = i.code
+          SET
+            i.price = v.price,
+            i.amount = v.amount,
+            i.visible = 1,
+            i.log_timestamp = ?
+          WHERE i.business_id = ?
+        `;
+
+        const affected = await prisma.$executeRawUnsafe<number>(
+          updateSql,
+          ...values,
+          syncTimestamp,
+          businessId
+        );
+        updated += Number(affected || 0);
+      }
+
+      // Обнуляем остаток для позиций, которых не было в текущей загрузке.
+      // Важно: используем log_timestamp как маркер синхронизации — это существенно легче, чем code NOT IN (...)
+      // и не требует передавать огромный список кодов в SQL.
+      const zeroedMissing = await prisma.$executeRawUnsafe<number>(
+        `
+          UPDATE items
+          SET amount = 0, log_timestamp = ?
+          WHERE business_id = ?
+            AND code IS NOT NULL
+            AND (log_timestamp IS NULL OR log_timestamp < ?)
+            AND (amount IS NULL OR amount <> 0)
+        `,
+        syncTimestamp,
+        businessId,
+        syncTimestamp
+      );
 
       res.json({
         success: true,
         data: {
           received: itemsRaw.length,
           normalized: normalized.length,
-          updated: updates.length,
-          skipped_not_found: normalized.length - updates.length,
-          zeroed_missing: zeroedMissingCount
+          updated,
+          zeroed_missing: Number(zeroedMissing || 0)
         },
         message: 'Цены и остатки успешно загружены'
       });
