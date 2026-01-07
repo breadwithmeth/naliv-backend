@@ -1553,30 +1553,12 @@ export class BusinessController {
         updated += Number(affected || 0);
       }
 
-      // Обнуляем остаток для позиций, которых не было в текущей загрузке.
-      // Важно: используем log_timestamp как маркер синхронизации — это существенно легче, чем code NOT IN (...)
-      // и не требует передавать огромный список кодов в SQL.
-      const zeroedMissing = await prisma.$executeRawUnsafe<number>(
-        `
-          UPDATE items
-          SET amount = 0, log_timestamp = ?
-          WHERE business_id = ?
-            AND code IS NOT NULL
-            AND (log_timestamp IS NULL OR log_timestamp < ?)
-            AND (amount IS NULL OR amount <> 0)
-        `,
-        syncTimestamp,
-        businessId,
-        syncTimestamp
-      );
-
       res.json({
         success: true,
         data: {
           received: itemsRaw.length,
           normalized: normalized.length,
-          updated,
-          zeroed_missing: Number(zeroedMissing || 0)
+          updated
         },
         message: 'Цены и остатки успешно загружены'
       });
