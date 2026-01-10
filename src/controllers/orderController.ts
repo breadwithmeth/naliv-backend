@@ -2072,6 +2072,296 @@ export class OrderController {
   }
   
   /**
+   * Создание заказа без оплаты с использованием address_id
+   * POST /api/orders/create-order-no-payment-with-address
+   */
+  static async createOrderNoPaymentWithAddress(req: AuthRequest, res: Response, next: NextFunction) {
+    try {
+      const { 
+        business_id, 
+        address_id, // Используем существующий адрес
+        items, 
+        bonus_amount = 0, 
+        extra = '',
+        delivery_type = 'DELIVERY',
+        delivery_date
+      } = req.body;
+
+      // Проверяем авторизацию пользователя
+      if (!req.user) {
+        return next(createError(401, 'Необходима авторизация'));
+      }
+
+      const user_id = req.user.user_id;
+
+      // Входные проверки
+      if (!business_id || !items || items.length === 0) {
+        return next(createError(400, 'Не все обязательные поля заполнены'));
+      }
+
+      // Проверяем корректность данных товаров
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (!item.item_id || typeof item.item_id !== 'number') {
+          return next(createError(400, `Товар ${i + 1}: отсутствует или некорректный item_id`));
+        }
+        
+        const amount = typeof item.amount === 'string' ? parseFloat(item.amount) : item.amount;
+        if (!item.amount || isNaN(amount) || amount <= 0) {
+          return next(createError(400, `Товар ${i + 1}: отсутствует или некорректное количество amount`));
+        }
+        
+        item.amount = amount;
+      }
+
+      // Для доставки проверяем address_id и получаем адрес
+      let addressData = null;
+      if (delivery_type === 'DELIVERY' || delivery_type === 'SCHEDULED') {
+        if (!address_id) {
+          const deliveryTypeText = delivery_type === 'SCHEDULED' ? 'запланированной доставки' : 'доставки';
+          return next(createError(400, `Для ${deliveryTypeText} необходимо указать address_id`));
+        }
+
+        // Получаем и проверяем адрес
+        addressData = await prisma.user_addreses.findFirst({
+          where: {
+            address_id: address_id,
+            user_id: user_id
+          }
+        });
+
+        if (!addressData) {
+          return next(createError(404, 'Адрес не найден или не принадлежит пользователю'));
+        }
+      }
+
+      // Для запланированной доставки проверяем дату
+      if (delivery_type === 'SCHEDULED') {
+        if (!delivery_date) {
+          return next(createError(400, 'Для запланированной доставки необходимо указать дату delivery_date'));
+        }
+        
+        const scheduledDate = new Date(delivery_date);
+        const now = new Date();
+        
+        if (scheduledDate <= now) {
+          return next(createError(400, 'Дата запланированной доставки должна быть в будущем'));
+        }
+        
+        const maxFutureDate = new Date();
+        maxFutureDate.setDate(maxFutureDate.getDate() + 30);
+        
+        if (scheduledDate > maxFutureDate) {
+          return next(createError(400, 'Дата запланированной доставки не может быть более чем на 30 дней вперед'));
+        }
+        
+        console.log('Запланированная доставка на:', scheduledDate.toISOString());
+      }
+
+      console.log('Начинаем создание заказа без оплаты (с address_id) для пользователя:', user_id);
+      console.log('Получены товары:', JSON.stringify(items, null, 2));
+
+      // Проверяем существование бизнеса
+      const business = await prisma.businesses.findUnique({
+        where: { business_id }
+      });
+
+      if (!business) {
+        return next(createError(404, 'Бизнес не найден'));
+      }
+
+      const order_uuid = OrderController.generateNumericOrderUuid(user_id);
+
+      // Рассчитываем стоимость доставки ДО транзакции
+      let deliveryPrice = 0;
+      if (delivery_type === 'DELIVERY' || delivery_type === 'SCHEDULED') {
+        try {
+          const deliveryResult = await DeliveryController.calculateDeliveryZone({
+            lat: addressData!.lat,
+            lon: addressData!.lon,
+            business_id
+          });
+          
+          if (deliveryResult.in_zone && deliveryResult.price !== false) {
+            deliveryPrice = Number(deliveryResult.price);
+            
+            if (delivery_type === 'SCHEDULED') {
+              console.log('Рассчитана стоимость запланированной доставки:', deliveryPrice);
+            } else {
+              console.log('Рассчитана стоимость обычной доставки:', deliveryPrice);
+            }
+          } else {
+            const deliveryTypeText = delivery_type === 'SCHEDULED' ? 'Запланированная доставка' : 'Доставка';
+            return next(createError(400, `${deliveryTypeText} недоступна: ${deliveryResult.message}`));
+          }
+        } catch (deliveryError: any) {
+          console.error('Ошибка расчета доставки:', deliveryError);
+          return next(createError(500, 'Ошибка расчета доставки'));
+        }
+      }
+
+      // Создаем заказ и все связанные данные в транзакции
+      const orderResult = await prisma.$transaction(async (tx) => {
+        // Создаем заказ
+        const orderData: any = {
+          business_id,
+          user_id,
+          order_uuid,
+          address_id: address_id || 1, // Используем переданный address_id
+          delivery_price: deliveryPrice,
+          bonus: bonus_amount,
+          extra,
+          delivery_type: delivery_type as orders_delivery_type,
+          delivery_date: delivery_date ? new Date(delivery_date) : null,
+          is_canceled: 0
+        };
+
+        const order = await tx.orders.create({
+          data: orderData
+        });
+
+        console.log('Создан заказ с ID:', order.order_id);
+
+        // Создаем статус заказа (новый заказ без оплаты)
+        await tx.order_status.create({
+          data: {
+            order_id: order.order_id,
+            status: 66, // Статус 66 - новый заказ без оплаты
+            isCanceled: 0,
+            log_timestamp: new Date()
+          }
+        });
+
+        console.log('Создан статус заказа для order_id:', order.order_id);
+
+        // Добавляем товары в заказ
+        for (const item of items) {
+          if (!item.item_id || typeof item.item_id !== 'number') {
+            throw new Error(`Некорректный item_id: ${item.item_id}`);
+          }
+          
+          console.log('Обрабатываем товар с ID:', item.item_id);
+          
+          const itemData = await tx.items.findUnique({
+            where: { item_id: item.item_id }
+          });
+
+          if (!itemData) {
+            throw new Error(`Товар с ID ${item.item_id} не найден`);
+          }
+
+          const itemPrice = Number(itemData.price || 0);
+
+          // Проверяем активные акции для данного товара
+          let appliedPromotionDetailId = null;
+          
+          const now = new Date();
+          const promotionDetailsRaw = await tx.$queryRaw`
+            SELECT 
+              mpd.detail_id,
+              mpd.type,
+              mpd.base_amount,
+              mpd.add_amount,
+              mpd.discount,
+              mp.start_promotion_date,
+              mp.end_promotion_date
+            FROM marketing_promotion_details mpd
+            LEFT JOIN marketing_promotions mp ON mp.marketing_promotion_id = mpd.marketing_promotion_id
+            WHERE mpd.item_id = ${item.item_id}
+              AND mp.start_promotion_date < NOW()
+              AND mp.end_promotion_date > NOW()
+              AND mp.visible = 1
+            ORDER BY mpd.discount DESC
+            LIMIT 1
+          `;
+
+          if (Array.isArray(promotionDetailsRaw) && promotionDetailsRaw.length > 0) {
+            appliedPromotionDetailId = (promotionDetailsRaw[0] as any).detail_id;
+            console.log('Применена акция detail_id:', appliedPromotionDetailId, 'для товара:', item.item_id);
+          }
+
+          const orderItem = await tx.orders_items.create({
+            data: {
+              order_id: order.order_id,
+              item_id: item.item_id,
+              amount: item.amount,
+              price: itemPrice,
+              marketing_promotion_detail_id: appliedPromotionDetailId
+            }
+          });
+
+          console.log('Добавлен товар:', orderItem);
+
+          // Добавляем опции товара
+          if (item.options && item.options.length > 0) {
+            for (const option of item.options) {
+              const optionData = await tx.option_items.findUnique({
+                where: { relation_id: option.option_item_relation_id }
+              });
+
+              if (optionData) {
+                await tx.order_items_options.create({
+                  data: {
+                    order_item_relation_id: orderItem.relation_id,
+                    item_id: optionData.item_id,
+                    option_item_relation_id: option.option_item_relation_id,
+                    order_id: order.order_id,
+                    price: Number(optionData.price || 0),
+                    amount: item.amount / (optionData.parent_item_amount || 1)
+                  }
+                });
+              }
+            }
+          }
+        }
+
+        // Рассчитываем итоговую стоимость заказа
+        const totals = await OrderController.calculateOrderTotalInTransaction(tx, order.order_id);
+        
+        console.log('Заказ создан без оплаты. Итоговая сумма:', totals.total_sum);
+        console.log('Сумма до доставки:', totals.sum_before_delivery, 'Стоимость доставки:', deliveryPrice);
+
+        return {
+          success: true,
+          order_id: order.order_id,
+          order_uuid: order_uuid,
+          total_sum: totals.total_sum,
+          delivery_price: deliveryPrice,
+          address_id
+        };
+      }, {
+        maxWait: 10000,
+        timeout: 100000
+      });
+
+      // Отправляем уведомление о создании заказа
+      try {
+        console.log('Уведомление о заказе отправлено');
+      } catch (notificationError) {
+        console.error('Ошибка отправки уведомления:', notificationError);
+      }
+
+      res.status(201).json({
+        success: true,
+        data: {
+          order_id: orderResult.order_id,
+          order_uuid: orderResult.order_uuid,
+          total_sum: orderResult.total_sum,
+          delivery_price: orderResult.delivery_price,
+          address_id: orderResult.address_id,
+          is_canceled: 0,
+          delivery_type: delivery_type
+        },
+        message: 'Заказ создан без оплаты. Используйте API платежей для оплаты заказа.'
+      });
+
+    } catch (error: any) {
+      console.error('Ошибка создания заказа без оплаты (с address_id):', error);
+      next(createError(500, `Ошибка создания заказа: ${error.message}`));
+    }
+  }
+
+  /**
    * Создание нового заказа
    * POST /api/orders
    */

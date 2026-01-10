@@ -15,6 +15,9 @@ router.post('/create-user-order', authenticateToken, OrderController.createUserO
 // POST /api/orders/create-order-no-payment - Создать новый заказ без оплаты
 router.post('/create-order-no-payment', authenticateToken, OrderController.createOrderNoPayment);
 
+// POST /api/orders/create-order-no-payment-with-address - Создать новый заказ без оплаты с использованием address_id
+router.post('/create-order-no-payment-with-address', authenticateToken, OrderController.createOrderNoPaymentWithAddress);
+
 // POST /api/orders - Создать новый заказ (пользователи, совместимость)
 router.post('/', authenticateToken, OrderController.createOrder);
 
