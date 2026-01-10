@@ -35,6 +35,11 @@ router.post('/upload-prices', authenticateBusiness, BusinessController.uploadPri
 // Требует авторизации бизнеса
 router.post('/whatsapp/send-code', authenticateBusiness, BusinessController.sendWhatsAppCode);
 
+// GET /api/businesses/orders/daily-pending - Получить список заказов за сутки со статусом 0
+// Query params: ?date=2026-01-09 (optional, по умолчанию текущая дата)
+// Требует авторизации бизнеса
+router.get('/orders/daily-pending', authenticateBusiness, BusinessController.getDailyPendingOrders);
+
 // GET /api/businesses/reports/couriers - Отчет по курьерам и доставкам за период
 // Query params: ?start_date=2025-08-01&end_date=2025-08-10&city_id=1&courier_id=5
 // Требует авторизации бизнеса, business_id берется из middleware

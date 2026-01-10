@@ -1416,13 +1416,23 @@ export class BusinessController {
         ? await prisma.items.createMany({ data: toCreate })
         : { count: 0 };
 
-      const visibleUpdate = await prisma.items.updateMany({
-        where: {
-          business_id: businessId,
-          code: { in: codes }
-        },
-        data: { visible: 1 }
-      });
+      // Обновляем название и видимость для существующих товаров
+      let nameUpdated = 0;
+      for (const item of normalized) {
+        if (existingCodes.has(item.code)) {
+          const result = await prisma.items.updateMany({
+            where: {
+              business_id: businessId,
+              code: item.code
+            },
+            data: { 
+              name: item.name,
+              visible: 1 
+            }
+          });
+          nameUpdated += result.count;
+        }
+      }
 
       const codesByBarcode = new Map<string, string[]>();
       for (const it of normalized) {
@@ -1450,7 +1460,7 @@ export class BusinessController {
           received: itemsRaw.length,
           normalized: normalized.length,
           created: createResult.count,
-          visible_updated: visibleUpdate.count,
+          name_updated: nameUpdated,
           barcode_updated: barcodeUpdated
         },
         message: 'Товары успешно загружены'
@@ -1641,6 +1651,128 @@ export class BusinessController {
           message_id: sendResult.messageId ?? null
         },
         message: 'Код отправлен через WhatsApp'
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  /**
+   * Получить список заказов за сутки со статусом 0
+   * GET /api/businesses/orders/daily-pending
+   * Auth: Authorization: Bearer <business_token>
+   * Query params:
+   *   - date (optional): дата в формате YYYY-MM-DD (по умолчанию текущая дата)
+   */
+  static async getDailyPendingOrders(req: BusinessAuthRequest, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const businessId = req.business?.business_id;
+      if (!businessId) {
+        throw createError(401, 'Требуется авторизация бизнеса');
+      }
+
+      // Получаем дату из query параметра или используем текущую дату
+      const dateParam = (req.query.date as string) || new Date().toISOString().split('T')[0];
+      
+      // Валидация и парсинг даты
+      const startOfDay = BusinessController.validateAndParseDate(dateParam, false);
+      const endOfDay = BusinessController.validateAndParseDate(dateParam, true);
+
+      // Запрос для получения заказов со статусом 0 за указанные сутки
+      const sqlQuery = `
+        SELECT 
+          o.order_id,
+          o.order_uuid,
+          o.user_id,
+          o.business_id,
+          o.address_id,
+          o.delivery_price,
+          o.log_timestamp as order_created,
+          u.name as customer_name,
+          u.login as customer_phone,
+          da.address as delivery_address,
+          os.status as current_status,
+          os.log_timestamp as status_timestamp
+        FROM orders o
+        LEFT JOIN users u ON u.user_id = o.user_id
+        LEFT JOIN user_addreses da ON da.address_id = o.address_id
+        LEFT JOIN (
+          SELECT 
+            order_id, 
+            status,
+            log_timestamp,
+            ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY log_timestamp DESC) as rn
+          FROM order_status
+        ) os ON o.order_id = os.order_id AND os.rn = 1
+        WHERE o.business_id = ?
+          AND os.status = 0
+          AND o.log_timestamp BETWEEN ? AND ?
+        ORDER BY o.log_timestamp DESC
+      `;
+
+      const orders = await prisma.$queryRawUnsafe<any[]>(
+        sqlQuery,
+        businessId,
+        startOfDay,
+        endOfDay
+      );
+
+      // Получаем items для каждого заказа
+      const ordersWithItems = await Promise.all(
+        orders.map(async (order) => {
+          const orderItems = await prisma.orders_items.findMany({
+            where: { order_id: order.order_id }
+          });
+
+          // Получаем информацию о товарах
+          const itemsDetails = await Promise.all(
+            orderItems.map(async (orderItem) => {
+              const item = await prisma.items.findUnique({
+                where: { item_id: orderItem.item_id },
+                select: {
+                  item_id: true,
+                  name: true,
+                  code: true,
+                  price: true
+                }
+              });
+
+              return {
+                item_id: item?.item_id,
+                name: item?.name,
+                code: item?.code,
+                price: Number(item?.price || 0),
+                amount: Number(orderItem.amount)
+              };
+            })
+          );
+
+          return {
+            order_id: order.order_id,
+            order_uuid: order.order_uuid,
+            user_id: order.user_id,
+            order_created: order.order_created,
+            status: order.current_status,
+            status_timestamp: order.status_timestamp,
+            delivery_price: Number(order.delivery_price),
+            customer: {
+              name: order.customer_name,
+              phone: order.customer_phone
+            },
+            delivery_address: order.delivery_address,
+            items: itemsDetails
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        data: {
+          date: dateParam,
+          total_orders: ordersWithItems.length,
+          orders: ordersWithItems
+        },
+        message: `Найдено ${ordersWithItems.length} заказов со статусом 0 за ${dateParam}`
       });
     } catch (error) {
       next(error);
