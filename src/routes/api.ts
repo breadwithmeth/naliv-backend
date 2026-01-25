@@ -15,6 +15,8 @@ import notificationRoutes from './notifications';
 import courierAuthRoutes from './courierAuth';
 import courierRoutes from './courier';
 import { businessOrderRoutes } from './businessOrderRoutes';
+import glovoRoutes from './glovo';
+import developerRoutes from './developer';
 
 const router = Router();
 
@@ -101,5 +103,7 @@ router.use('/employee/auth', employeeAuthRoutes);
 router.use('/employee', employeeRoutes);
 router.use('/courier/auth', courierAuthRoutes);
 router.use('/courier', courierRoutes);
+router.use('/glovo', glovoRoutes);
+router.use('/developer', developerRoutes);
 
 export default router;

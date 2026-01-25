@@ -27,6 +27,36 @@ interface AuthRequest extends Request {
 export class OrderController {
 
   /**
+   * Валидация и парсинг даты с поддержкой времени
+   * Поддерживаемые форматы:
+   * - YYYY-MM-DD
+   * - YYYY-MM-DD HH:mm
+   * - YYYY-MM-DD HH:mm:ss
+   * - ISO 8601
+   */
+  private static validateAndParseDate(dateString: string, isEndDate = false): Date {
+    if (!dateString) {
+      throw createError(400, 'Дата не может быть пустой');
+    }
+
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      throw createError(400, 'Неверный формат даты. Поддерживаемые форматы: YYYY-MM-DD, YYYY-MM-DD HH:mm:ss, ISO 8601');
+    }
+
+    // Если передана только дата без времени (длина 10 символов), устанавливаем время
+    if (dateString.length === 10) {
+      if (isEndDate) {
+        date.setHours(23, 59, 59, 999);
+      } else {
+        date.setHours(0, 0, 0, 0);
+      }
+    }
+
+    return date;
+  }
+
+  /**
    * Генерация числового UUID для заказа
    * Формат: timestamp(10 цифр) + userId(3 цифры) + random(3 цифры) = 16 цифр
    */
@@ -3337,7 +3367,7 @@ export class OrderController {
       }
 
       const user_id = req.user.user_id;
-      const { business_id, delivery_type } = req.query;
+      const { business_id, delivery_type, start_date, end_date } = req.query;
 
       // Определяем активные статусы (исключаем доставленные заказы)
       const activeStatuses = [66, 0, 1, 2, 3]; // NEW, PAID, PROCESSING, COLLECTED, COURIER, DELIVERY
@@ -3347,6 +3377,25 @@ export class OrderController {
         user_id: user_id,
         is_canceled: 0 // Не отмененные заказы
       };
+
+      // Фильтрация по периоду создания заказа
+      if (start_date || end_date) {
+        if (!start_date || !end_date) {
+          return next(createError(400, 'Необходимо указать start_date и end_date'));
+        }
+
+        const start = OrderController.validateAndParseDate(String(start_date), false);
+        const end = OrderController.validateAndParseDate(String(end_date), true);
+
+        if (start > end) {
+          return next(createError(400, 'start_date не может быть больше end_date'));
+        }
+
+        whereCondition.log_timestamp = {
+          gte: start,
+          lte: end
+        };
+      }
 
       // Если указан business_id, фильтруем по нему
       if (business_id) {
@@ -3534,12 +3583,31 @@ export class OrderController {
       const page = parseInt(req.query.page as string) || 1;
       const limit = Math.min(parseInt(req.query.limit as string) || 20, 50);
       const offset = (page - 1) * limit;
-      const { status, business_id, delivery_type } = req.query;
+      const { status, business_id, delivery_type, start_date, end_date } = req.query;
 
       // Формируем условия фильтрации
       const whereConditions: any = {
         user_id: user_id
       };
+
+      // Фильтрация по периоду создания заказа
+      if (start_date || end_date) {
+        if (!start_date || !end_date) {
+          return next(createError(400, 'Необходимо указать start_date и end_date'));
+        }
+
+        const start = OrderController.validateAndParseDate(String(start_date), false);
+        const end = OrderController.validateAndParseDate(String(end_date), true);
+
+        if (start > end) {
+          return next(createError(400, 'start_date не может быть больше end_date'));
+        }
+
+        whereConditions.log_timestamp = {
+          gte: start,
+          lte: end
+        };
+      }
 
       if (business_id) {
         const businessIdNum = parseInt(business_id as string);
@@ -3707,7 +3775,9 @@ export class OrderController {
           filters_applied: {
             status: status || null,
             business_id: business_id || null,
-            delivery_type: delivery_type || null
+            delivery_type: delivery_type || null,
+            start_date: start_date || null,
+            end_date: end_date || null
           }
         },
         message: `Найдено ${ordersWithDetails.length} заказов`

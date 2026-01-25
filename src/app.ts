@@ -84,7 +84,7 @@ class App {
       origin: '*', // Разрешаем все источники
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Developer-Key', 'X-API-Key'],
       maxAge: 86400 // Access-Control-Max-Age: 86400 секунд (24 часа)
     }));
     
