@@ -164,6 +164,73 @@ export class DeveloperController {
         prisma.orders.count({ where })
       ]);
 
+      const businessIds = Array.from(
+        new Set(
+          orders
+            .map(o => o.business_id)
+            .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0)
+        )
+      );
+
+      const businesses = businessIds.length
+        ? await prisma.businesses.findMany({
+            where: { business_id: { in: businessIds } },
+            select: {
+              business_id: true,
+              name: true,
+              description: true,
+              address: true,
+              logo: true,
+              img: true
+            }
+          })
+        : [];
+
+      const businessMap = new Map<number, typeof businesses[number]>();
+      for (const b of businesses) {
+        businessMap.set(b.business_id, b);
+      }
+
+      const userIds = Array.from(
+        new Set(
+          orders
+            .map(o => o.user_id)
+            .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0)
+        )
+      );
+
+      const users = userIds.length
+        ? await prisma.user.findMany({
+            where: { user_id: { in: userIds } },
+            select: { user_id: true, login: true, name: true, first_name: true, last_name: true }
+          })
+        : [];
+
+      const userMap = new Map<number, typeof users[number]>();
+      for (const u of users) {
+        userMap.set(u.user_id, u);
+      }
+
+      const employeeIds = Array.from(
+        new Set(
+          orders
+            .map(o => o.employee_id)
+            .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0)
+        )
+      );
+
+      const employees = employeeIds.length
+        ? await prisma.employee.findMany({
+            where: { employee_id: { in: employeeIds } },
+            select: { employee_id: true, name: true, login: true }
+          })
+        : [];
+
+      const employeeMap = new Map<number, { name: string | null; login: string }>();
+      for (const e of employees) {
+        employeeMap.set(e.employee_id, { name: e.name ?? null, login: e.login });
+      }
+
       const orderIds = orders.map(o => o.order_id);
       const lastStatuses = orderIds.length
         ? await prisma.order_status.findMany({
@@ -187,11 +254,29 @@ export class DeveloperController {
       const data = orders
         .map(order => {
           const currentStatus = statusMap.get(order.order_id) || null;
+          const employeeInfo = typeof order.employee_id === 'number' ? employeeMap.get(order.employee_id) : undefined;
+          const businessInfo = typeof order.business_id === 'number' ? businessMap.get(order.business_id) : undefined;
+          const userInfo = userMap.get(order.user_id);
           return {
             order_id: order.order_id,
             order_uuid: order.order_uuid,
-            user_id: order.user_id,
-            business_id: order.business_id,
+            user: {
+              user_id: order.user_id,
+              login: userInfo?.login ?? null,
+              name: userInfo?.name ?? null,
+              first_name: userInfo?.first_name ?? null,
+              last_name: userInfo?.last_name ?? null
+            },
+            business: {
+              business_id: order.business_id ?? null,
+              name: businessInfo?.name ?? null,
+              description: businessInfo?.description ?? null,
+              address: businessInfo?.address ?? null,
+              logo: businessInfo?.logo ?? null,
+              img: businessInfo?.img ?? null
+            },
+            employee_id: order.employee_id ?? null,
+            employee_name: employeeInfo?.name ?? null,
             log_timestamp: order.log_timestamp,
             delivery_type: order.delivery_type,
             delivery_date: order.delivery_date,
