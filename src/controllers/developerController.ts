@@ -147,30 +147,89 @@ export class DeveloperController {
         })
       : [];
 
-    const itemIds = [
-      ...new Set(orderItems.map(i => i.item_id))
-    ];
+    const itemIds = [...new Set(orderItems.map(i => i.item_id))];
 
     const itemsData = itemIds.length
       ? await prisma.items.findMany({
           where: { item_id: { in: itemIds } },
+          select: { item_id: true, name: true, barcode: true }
+        })
+      : [];
+
+    const itemsMap = new Map<number, any[]>();
+    for (const item of orderItems) {
+      if (!itemsMap.has(item.order_id)) itemsMap.set(item.order_id, []);
+      itemsMap.get(item.order_id)!.push(item);
+    }
+
+    const itemsInfoMap = new Map(itemsData.map(i => [i.item_id, i]));
+
+    // ================= USERS =================
+    const userIds = [...new Set(orders.map(o => o.user_id))];
+
+    const users = userIds.length
+      ? await prisma.user.findMany({
+          where: { user_id: { in: userIds } },
           select: {
-            item_id: true,
+            user_id: true,
             name: true,
-            barcode: true
+            first_name: true,
+            last_name: true,
+            login: true
           }
         })
       : [];
 
-    const itemsInfoMap = new Map(itemsData.map(i => [i.item_id, i]));
+    const userMap = new Map(users.map(u => [u.user_id, u]));
 
-    const itemsMap = new Map<number, typeof orderItems>();
-    for (const item of orderItems) {
-      if (!itemsMap.has(item.order_id)) {
-        itemsMap.set(item.order_id, []);
-      }
-      itemsMap.get(item.order_id)!.push(item);
-    }
+    // ================= BUSINESSES =================
+    const businessIds = [
+      ...new Set(
+        orders
+          .map(o => o.business_id)
+          .filter((id): id is number => typeof id === 'number')
+      )
+    ];
+
+    const businesses = businessIds.length
+      ? await prisma.businesses.findMany({
+          where: { business_id: { in: businessIds } },
+          select: {
+            business_id: true,
+            name: true,
+            description: true,
+            address: true,
+            city: true,
+            lat: true,
+            lon: true,
+            logo: true,
+            img: true
+          }
+        })
+      : [];
+
+    const businessMap = new Map(
+      businesses.map(b => [b.business_id, b])
+    );
+
+    // ================= AGGREGATORS =================
+    const aggregatorNames = [
+      ...new Set(
+        orders
+          .map(o => o.aggregator)
+          .filter((name): name is string => !!name)
+      )
+    ];
+
+    const aggregators = aggregatorNames.length
+      ? await prisma.aggregators.findMany({
+          where: { name: { in: aggregatorNames } }
+        })
+      : [];
+
+    const aggregatorMap = new Map(
+      aggregators.map(a => [a.name, a])
+    );
 
     // ================= EMPLOYEE =================
     const employeeIds = [
@@ -197,7 +256,7 @@ export class DeveloperController {
       employees.map(e => [e.employee_id, e])
     );
 
-    // ================= COURIER =================
+    // ================= COURIERS =================
     const courierIds = [
       ...new Set(
         orders
@@ -223,7 +282,7 @@ export class DeveloperController {
       couriers.map(c => [c.courier_id, c])
     );
 
-    // ================= СТАТУСЫ =================
+    // ================= STATUS =================
     const lastStatuses = orderIds.length
       ? await prisma.order_status.findMany({
           where: { order_id: { in: orderIds } },
@@ -242,7 +301,6 @@ export class DeveloperController {
 
       const formattedItems = positions.map(pos => {
         const itemInfo = itemsInfoMap.get(pos.item_id);
-
         const amount = Number(pos.amount);
         const price = pos.price ? Number(pos.price) : 0;
 
@@ -261,8 +319,24 @@ export class DeveloperController {
       return {
         order_id: order.order_id,
         order_uuid: order.order_uuid,
-        user_id: order.user_id,
-        business_id: order.business_id,
+
+        user: userMap.get(order.user_id) ?? null,
+        business: order.business_id
+          ? businessMap.get(order.business_id) ?? null
+          : null,
+
+        aggregator: order.aggregator
+          ? aggregatorMap.get(order.aggregator) ?? null
+          : null,
+
+        employee: order.employee_id
+          ? employeeMap.get(order.employee_id) ?? null
+          : null,
+
+        courier: order.courier_id
+          ? courierMap.get(order.courier_id) ?? null
+          : null,
+
         delivery_type: order.delivery_type,
         delivery_date: order.delivery_date,
         log_timestamp: order.log_timestamp,
@@ -276,14 +350,6 @@ export class DeveloperController {
         items_count: formattedItems.length,
         order_total: +orderTotal.toFixed(2),
         items: formattedItems,
-
-        employee: order.employee_id
-          ? employeeMap.get(order.employee_id) ?? null
-          : null,
-
-        courier: order.courier_id
-          ? courierMap.get(order.courier_id) ?? null
-          : null,
 
         current_status: statusMap.get(order.order_id)
           ? {
