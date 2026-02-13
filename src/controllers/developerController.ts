@@ -125,10 +125,7 @@ export class DeveloperController {
     const offset = (page - 1) * limit;
 
     const where: any = {
-      log_timestamp: {
-        gte: start,
-        lte: end
-      }
+      log_timestamp: { gte: start, lte: end }
     };
 
     const [orders, total] = await Promise.all([
@@ -143,23 +140,17 @@ export class DeveloperController {
 
     const orderIds = orders.map(o => o.order_id);
 
-    // ---------------- ПОЛУЧАЕМ ПОЗИЦИИ ----------------
+    // ================= ПОЗИЦИИ =================
     const orderItems = orderIds.length
       ? await prisma.orders_items.findMany({
           where: { order_id: { in: orderIds } }
         })
       : [];
 
-    // Собираем уникальные item_id
     const itemIds = [
-      ...new Set(
-        orderItems
-          .map(i => i.item_id)
-          .filter(id => typeof id === 'number')
-      )
+      ...new Set(orderItems.map(i => i.item_id))
     ];
 
-    // ---------------- ПОЛУЧАЕМ ТОВАРЫ ----------------
     const itemsData = itemIds.length
       ? await prisma.items.findMany({
           where: { item_id: { in: itemIds } },
@@ -171,14 +162,9 @@ export class DeveloperController {
         })
       : [];
 
-    const itemsInfoMap = new Map<number, typeof itemsData[number]>();
-    for (const item of itemsData) {
-      itemsInfoMap.set(item.item_id, item);
-    }
+    const itemsInfoMap = new Map(itemsData.map(i => [i.item_id, i]));
 
-    // ---------------- ГРУППИРУЕМ ПОЗИЦИИ ПО ЗАКАЗУ ----------------
     const itemsMap = new Map<number, typeof orderItems>();
-
     for (const item of orderItems) {
       if (!itemsMap.has(item.order_id)) {
         itemsMap.set(item.order_id, []);
@@ -186,7 +172,58 @@ export class DeveloperController {
       itemsMap.get(item.order_id)!.push(item);
     }
 
-    // ---------------- СТАТУСЫ ----------------
+    // ================= EMPLOYEE =================
+    const employeeIds = [
+      ...new Set(
+        orders
+          .map(o => o.employee_id)
+          .filter((id): id is number => typeof id === 'number')
+      )
+    ];
+
+    const employees = employeeIds.length
+      ? await prisma.employee.findMany({
+          where: { employee_id: { in: employeeIds } },
+          select: {
+            employee_id: true,
+            name: true,
+            login: true,
+            access_level: true
+          }
+        })
+      : [];
+
+    const employeeMap = new Map(
+      employees.map(e => [e.employee_id, e])
+    );
+
+    // ================= COURIER =================
+    const courierIds = [
+      ...new Set(
+        orders
+          .map(o => o.courier_id)
+          .filter((id): id is number => typeof id === 'number')
+      )
+    ];
+
+    const couriers = courierIds.length
+      ? await prisma.couriers.findMany({
+          where: { courier_id: { in: courierIds } },
+          select: {
+            courier_id: true,
+            name: true,
+            full_name: true,
+            login: true,
+            courier_type: true
+          }
+        })
+      : [];
+
+    const courierMap = new Map(
+      couriers.map(c => [c.courier_id, c])
+    );
+
+    // ================= СТАТУСЫ =================
     const lastStatuses = orderIds.length
       ? await prisma.order_status.findMany({
           where: { order_id: { in: orderIds } },
@@ -195,12 +232,11 @@ export class DeveloperController {
         })
       : [];
 
-    const statusMap = new Map<number, typeof lastStatuses[number]>();
-    for (const st of lastStatuses) {
-      statusMap.set(st.order_id, st);
-    }
+    const statusMap = new Map(
+      lastStatuses.map(s => [s.order_id, s])
+    );
 
-    // ---------------- ФОРМИРОВАНИЕ ОТВЕТА ----------------
+    // ================= RESPONSE =================
     const data = orders.map(order => {
       const positions = itemsMap.get(order.order_id) || [];
 
@@ -220,12 +256,7 @@ export class DeveloperController {
         };
       });
 
-      const orderTotal = formattedItems.reduce(
-        (sum, i) => sum + i.total,
-        0
-      );
-
-      const currentStatus = statusMap.get(order.order_id) || null;
+      const orderTotal = formattedItems.reduce((s, i) => s + i.total, 0);
 
       return {
         order_id: order.order_id,
@@ -235,18 +266,30 @@ export class DeveloperController {
         delivery_type: order.delivery_type,
         delivery_date: order.delivery_date,
         log_timestamp: order.log_timestamp,
+        accepted_at: order.accepted_at,
+        ready_at: order.ready_at,
         is_canceled: order.is_canceled,
+
+        delivery_price: order.delivery_price,
+        bonus_used: order.bonus,
 
         items_count: formattedItems.length,
         order_total: +orderTotal.toFixed(2),
-
         items: formattedItems,
 
-        current_status: currentStatus
+        employee: order.employee_id
+          ? employeeMap.get(order.employee_id) ?? null
+          : null,
+
+        courier: order.courier_id
+          ? courierMap.get(order.courier_id) ?? null
+          : null,
+
+        current_status: statusMap.get(order.order_id)
           ? {
-              status: currentStatus.status,
-              is_canceled: currentStatus.isCanceled,
-              log_timestamp: currentStatus.log_timestamp
+              status: statusMap.get(order.order_id)!.status,
+              is_canceled: statusMap.get(order.order_id)!.isCanceled,
+              log_timestamp: statusMap.get(order.order_id)!.log_timestamp
             }
           : null
       };
@@ -261,10 +304,6 @@ export class DeveloperController {
           limit,
           total,
           total_pages: Math.ceil(total / limit)
-        },
-        filters_applied: {
-          start_date: startDateRaw,
-          end_date: endDateRaw
         }
       },
       message: `Найдено ${data.length} заказов`
@@ -274,5 +313,6 @@ export class DeveloperController {
     next(error);
   }
 }
+
 
 }
