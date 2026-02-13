@@ -96,228 +96,183 @@ export class DeveloperController {
    * - page (optional, default 1)
    * - limit (optional, default 50, max 100)
    */
-  static async getOrders(req: DeveloperAuthRequest, res: Response, next: NextFunction): Promise<void> {
-    try {
-      if (!req.developer) {
-        throw createError(401, 'Developer не авторизован');
-      }
-
-      const startDateRaw = req.query.start_date as string | undefined;
-      const endDateRaw = req.query.end_date as string | undefined;
-
-      if (!startDateRaw || !endDateRaw) {
-        throw createError(400, 'Необходимо указать start_date и end_date');
-      }
-
-      const start = DeveloperController.validateAndParseDate(startDateRaw, false);
-      const end = DeveloperController.validateAndParseDate(endDateRaw, true);
-
-      if (start > end) {
-        throw createError(400, 'start_date не может быть больше end_date');
-      }
-
-      const page = Math.max(parseInt(req.query.page as string) || 1, 1);
-      const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 100);
-      const offset = (page - 1) * limit;
-
-      const where: any = {
-        log_timestamp: {
-          gte: start,
-          lte: end
-        }
-      };
-
-      const businessIdRaw = req.query.business_id as string | undefined;
-      if (businessIdRaw) {
-        const businessId = Number(businessIdRaw);
-        if (!Number.isFinite(businessId) || businessId <= 0) {
-          throw createError(400, 'business_id должен быть положительным числом');
-        }
-        where.business_id = businessId;
-      }
-
-      const userIdRaw = req.query.user_id as string | undefined;
-      if (userIdRaw) {
-        const userId = Number(userIdRaw);
-        if (!Number.isFinite(userId) || userId <= 0) {
-          throw createError(400, 'user_id должен быть положительным числом');
-        }
-        where.user_id = userId;
-      }
-
-      const deliveryTypeRaw = req.query.delivery_type as string | undefined;
-      if (deliveryTypeRaw) {
-        const allowed = ['DELIVERY', 'PICKUP', 'SCHEDULED'];
-        if (!allowed.includes(deliveryTypeRaw)) {
-          throw createError(400, 'delivery_type должен быть одним из: DELIVERY, PICKUP, SCHEDULED');
-        }
-        where.delivery_type = deliveryTypeRaw;
-      }
-
-      const [orders, total] = await Promise.all([
-        prisma.orders.findMany({
-          where,
-          orderBy: { log_timestamp: 'desc' },
-          skip: offset,
-          take: limit
-        }),
-        prisma.orders.count({ where })
-      ]);
-
-      const businessIds = Array.from(
-        new Set(
-          orders
-            .map(o => o.business_id)
-            .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0)
-        )
-      );
-
-      const businesses = businessIds.length
-        ? await prisma.businesses.findMany({
-            where: { business_id: { in: businessIds } },
-            select: {
-              business_id: true,
-              name: true,
-              description: true,
-              address: true,
-              logo: true,
-              img: true
-            }
-          })
-        : [];
-
-      const businessMap = new Map<number, typeof businesses[number]>();
-      for (const b of businesses) {
-        businessMap.set(b.business_id, b);
-      }
-
-      const userIds = Array.from(
-        new Set(
-          orders
-            .map(o => o.user_id)
-            .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0)
-        )
-      );
-
-      const users = userIds.length
-        ? await prisma.user.findMany({
-            where: { user_id: { in: userIds } },
-            select: { user_id: true, login: true, name: true, first_name: true, last_name: true }
-          })
-        : [];
-
-      const userMap = new Map<number, typeof users[number]>();
-      for (const u of users) {
-        userMap.set(u.user_id, u);
-      }
-
-      const employeeIds = Array.from(
-        new Set(
-          orders
-            .map(o => o.employee_id)
-            .filter((id): id is number => typeof id === 'number' && Number.isFinite(id) && id > 0)
-        )
-      );
-
-      const employees = employeeIds.length
-        ? await prisma.employee.findMany({
-            where: { employee_id: { in: employeeIds } },
-            select: { employee_id: true, name: true, login: true }
-          })
-        : [];
-
-      const employeeMap = new Map<number, { name: string | null; login: string }>();
-      for (const e of employees) {
-        employeeMap.set(e.employee_id, { name: e.name ?? null, login: e.login });
-      }
-
-      const orderIds = orders.map(o => o.order_id);
-      const lastStatuses = orderIds.length
-        ? await prisma.order_status.findMany({
-            where: { order_id: { in: orderIds } },
-            orderBy: { log_timestamp: 'desc' },
-            distinct: ['order_id']
-          })
-        : [];
-
-      const statusMap = new Map<number, typeof lastStatuses[number]>();
-      for (const st of lastStatuses) {
-        statusMap.set(st.order_id, st);
-      }
-
-      const statusFilterRaw = req.query.status as string | undefined;
-      const statusFilter = statusFilterRaw ? Number(statusFilterRaw) : null;
-      if (statusFilterRaw && (!Number.isFinite(statusFilter) || statusFilter! < 0)) {
-        throw createError(400, 'status должен быть числом');
-      }
-
-      const data = orders
-        .map(order => {
-          const currentStatus = statusMap.get(order.order_id) || null;
-          const employeeInfo = typeof order.employee_id === 'number' ? employeeMap.get(order.employee_id) : undefined;
-          const businessInfo = typeof order.business_id === 'number' ? businessMap.get(order.business_id) : undefined;
-          const userInfo = userMap.get(order.user_id);
-          return {
-            order_id: order.order_id,
-            order_uuid: order.order_uuid,
-            user: {
-              user_id: order.user_id,
-              login: userInfo?.login ?? null,
-              name: userInfo?.name ?? null,
-              first_name: userInfo?.first_name ?? null,
-              last_name: userInfo?.last_name ?? null
-            },
-            business: {
-              business_id: order.business_id ?? null,
-              name: businessInfo?.name ?? null,
-              description: businessInfo?.description ?? null,
-              address: businessInfo?.address ?? null,
-              logo: businessInfo?.logo ?? null,
-              img: businessInfo?.img ?? null
-            },
-            employee_id: order.employee_id ?? null,
-            employee_name: employeeInfo?.name ?? null,
-            log_timestamp: order.log_timestamp,
-            delivery_type: order.delivery_type,
-            delivery_date: order.delivery_date,
-            address_id: order.address_id,
-            delivery_price: Number(order.delivery_price || 0),
-            bonus_used: Number(order.bonus || 0),
-            is_canceled: order.is_canceled,
-            current_status: currentStatus
-              ? {
-                  status: currentStatus.status,
-                  is_canceled: currentStatus.isCanceled,
-                  log_timestamp: currentStatus.log_timestamp
-                }
-              : null
-          };
-        })
-        .filter(row => (statusFilter === null ? true : row.current_status?.status === statusFilter));
-
-      res.json({
-        success: true,
-        data: {
-          orders: data,
-          pagination: {
-            page,
-            limit,
-            total: statusFilter !== null ? data.length : total,
-            total_pages: Math.ceil((statusFilter !== null ? data.length : total) / limit)
-          },
-          filters_applied: {
-            start_date: startDateRaw,
-            end_date: endDateRaw,
-            business_id: businessIdRaw || null,
-            user_id: userIdRaw || null,
-            status: statusFilterRaw || null,
-            delivery_type: deliveryTypeRaw || null
-          }
-        },
-        message: `Найдено ${data.length} заказов`
-      });
-    } catch (error) {
-      next(error);
+  static async getOrders(
+  req: DeveloperAuthRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    if (!req.developer) {
+      throw createError(401, 'Developer не авторизован');
     }
+
+    const startDateRaw = req.query.start_date as string | undefined;
+    const endDateRaw = req.query.end_date as string | undefined;
+
+    if (!startDateRaw || !endDateRaw) {
+      throw createError(400, 'Необходимо указать start_date и end_date');
+    }
+
+    const start = DeveloperController.validateAndParseDate(startDateRaw, false);
+    const end = DeveloperController.validateAndParseDate(endDateRaw, true);
+
+    if (start > end) {
+      throw createError(400, 'start_date не может быть больше end_date');
+    }
+
+    const page = Math.max(parseInt(req.query.page as string) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit as string) || 50, 1), 100);
+    const offset = (page - 1) * limit;
+
+    const where: any = {
+      log_timestamp: {
+        gte: start,
+        lte: end
+      }
+    };
+
+    const [orders, total] = await Promise.all([
+      prisma.orders.findMany({
+        where,
+        orderBy: { log_timestamp: 'desc' },
+        skip: offset,
+        take: limit
+      }),
+      prisma.orders.count({ where })
+    ]);
+
+    const orderIds = orders.map(o => o.order_id);
+
+    // ---------------- ПОЛУЧАЕМ ПОЗИЦИИ ----------------
+    const orderItems = orderIds.length
+      ? await prisma.orders_items.findMany({
+          where: { order_id: { in: orderIds } }
+        })
+      : [];
+
+    // Собираем уникальные item_id
+    const itemIds = [
+      ...new Set(
+        orderItems
+          .map(i => i.item_id)
+          .filter(id => typeof id === 'number')
+      )
+    ];
+
+    // ---------------- ПОЛУЧАЕМ ТОВАРЫ ----------------
+    const itemsData = itemIds.length
+      ? await prisma.items.findMany({
+          where: { item_id: { in: itemIds } },
+          select: {
+            item_id: true,
+            name: true,
+            barcode: true
+          }
+        })
+      : [];
+
+    const itemsInfoMap = new Map<number, typeof itemsData[number]>();
+    for (const item of itemsData) {
+      itemsInfoMap.set(item.item_id, item);
+    }
+
+    // ---------------- ГРУППИРУЕМ ПОЗИЦИИ ПО ЗАКАЗУ ----------------
+    const itemsMap = new Map<number, typeof orderItems>();
+
+    for (const item of orderItems) {
+      if (!itemsMap.has(item.order_id)) {
+        itemsMap.set(item.order_id, []);
+      }
+      itemsMap.get(item.order_id)!.push(item);
+    }
+
+    // ---------------- СТАТУСЫ ----------------
+    const lastStatuses = orderIds.length
+      ? await prisma.order_status.findMany({
+          where: { order_id: { in: orderIds } },
+          orderBy: { log_timestamp: 'desc' },
+          distinct: ['order_id']
+        })
+      : [];
+
+    const statusMap = new Map<number, typeof lastStatuses[number]>();
+    for (const st of lastStatuses) {
+      statusMap.set(st.order_id, st);
+    }
+
+    // ---------------- ФОРМИРОВАНИЕ ОТВЕТА ----------------
+    const data = orders.map(order => {
+      const positions = itemsMap.get(order.order_id) || [];
+
+      const formattedItems = positions.map(pos => {
+        const itemInfo = itemsInfoMap.get(pos.item_id);
+
+        const amount = Number(pos.amount);
+        const price = pos.price ? Number(pos.price) : 0;
+
+        return {
+          item_id: pos.item_id,
+          name: itemInfo?.name ?? null,
+          barcode: itemInfo?.barcode ?? null,
+          amount,
+          price,
+          total: +(amount * price).toFixed(2)
+        };
+      });
+
+      const orderTotal = formattedItems.reduce(
+        (sum, i) => sum + i.total,
+        0
+      );
+
+      const currentStatus = statusMap.get(order.order_id) || null;
+
+      return {
+        order_id: order.order_id,
+        order_uuid: order.order_uuid,
+        user_id: order.user_id,
+        business_id: order.business_id,
+        delivery_type: order.delivery_type,
+        delivery_date: order.delivery_date,
+        log_timestamp: order.log_timestamp,
+        is_canceled: order.is_canceled,
+
+        items_count: formattedItems.length,
+        order_total: +orderTotal.toFixed(2),
+
+        items: formattedItems,
+
+        current_status: currentStatus
+          ? {
+              status: currentStatus.status,
+              is_canceled: currentStatus.isCanceled,
+              log_timestamp: currentStatus.log_timestamp
+            }
+          : null
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        orders: data,
+        pagination: {
+          page,
+          limit,
+          total,
+          total_pages: Math.ceil(total / limit)
+        },
+        filters_applied: {
+          start_date: startDateRaw,
+          end_date: endDateRaw
+        }
+      },
+      message: `Найдено ${data.length} заказов`
+    });
+
+  } catch (error) {
+    next(error);
   }
+}
+
 }
