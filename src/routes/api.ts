@@ -17,6 +17,7 @@ import courierRoutes from './courier';
 import { businessOrderRoutes } from './businessOrderRoutes';
 import glovoRoutes from './glovo';
 import developerRoutes from './developer';
+import tvRoutes from './tv';
 
 const router = Router();
 
@@ -105,5 +106,6 @@ router.use('/courier/auth', courierAuthRoutes);
 router.use('/courier', courierRoutes);
 router.use('/glovo', glovoRoutes);
 router.use('/developer', developerRoutes);
+router.use('/tv', tvRoutes);
 
 export default router;
