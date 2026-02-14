@@ -87,26 +87,23 @@ export class TvController {
           })
         : [];
 
-      const itemMap = new Map(
-        items
-          .map(item => {
-            const price = item.price !== null && item.price !== undefined ? Number(item.price) : null;
-            const quantity = item.quantity !== null && item.quantity !== undefined ? Number(item.quantity) : null;
+      const itemMap = new Map<number, { item_id: number; name: string | null; code: string | null; price: number; quantity: number }>();
 
-            if (price === null || Number.isNaN(price) || price <= 0) return null;
-            if (quantity === null || Number.isNaN(quantity) || quantity <= 0) return null;
+      for (const item of items) {
+        const price = item.price !== null && item.price !== undefined ? Number(item.price) : null;
+        const quantity = item.quantity !== null && item.quantity !== undefined ? Number(item.quantity) : null;
 
-            return {
-              item_id: item.item_id,
-              name: item.name,
-              code: item.code,
-              price,
-              quantity
-            };
-          })
-          .filter((item): item is { item_id: number; name: string | null; code: any; price: number; quantity: number } => item !== null)
-          .map(item => [item.item_id, item])
-      );
+        if (price === null || Number.isNaN(price) || price <= 0) continue;
+        if (quantity === null || Number.isNaN(quantity) || quantity <= 0) continue;
+
+        itemMap.set(item.item_id, {
+          item_id: item.item_id,
+          name: item.name ?? null,
+          code: item.code ? item.code.toString() : null,
+          price,
+          quantity
+        });
+      }
 
       const detailsByPromotion = new Map<number, TvPromotionDetail[]>();
       for (const detail of details) {
@@ -118,8 +115,8 @@ export class TvController {
           detail_id: detail.detail_id,
           item_id: detail.item_id,
           item_name: itemInfo?.name ?? null,
-          item_code: itemInfo?.code ? itemInfo.code.toString() : null,
-          price: itemInfo?.price !== undefined && itemInfo?.price !== null ? Number(itemInfo.price) : null,
+          item_code: itemInfo?.code ?? null,
+          price: itemInfo?.price ?? null,
           type: detail.type,
           name: detail.name,
           discount: detail.discount !== null ? Number(detail.discount) : null,
