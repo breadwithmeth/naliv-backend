@@ -83,15 +83,37 @@ export class TvController {
       const items = itemIds.length
         ? await prisma.items.findMany({
             where: { item_id: { in: itemIds } },
-            select: { item_id: true, name: true, code: true, price: true }
+            select: { item_id: true, name: true, code: true, price: true, quantity: true }
           })
         : [];
 
-      const itemMap = new Map(items.map(item => [item.item_id, item]));
+      const itemMap = new Map(
+        items
+          .map(item => {
+            const price = item.price !== null && item.price !== undefined ? Number(item.price) : null;
+            const quantity = item.quantity !== null && item.quantity !== undefined ? Number(item.quantity) : null;
+
+            if (price === null || Number.isNaN(price) || price <= 0) return null;
+            if (quantity === null || Number.isNaN(quantity) || quantity <= 0) return null;
+
+            return {
+              item_id: item.item_id,
+              name: item.name,
+              code: item.code,
+              price,
+              quantity
+            };
+          })
+          .filter((item): item is { item_id: number; name: string | null; code: any; price: number; quantity: number } => item !== null)
+          .map(item => [item.item_id, item])
+      );
 
       const detailsByPromotion = new Map<number, TvPromotionDetail[]>();
       for (const detail of details) {
         const itemInfo = itemMap.get(detail.item_id);
+        if (!itemInfo) {
+          continue; // Пропускаем товары без цены или без остатка
+        }
         const normalized: TvPromotionDetail = {
           detail_id: detail.detail_id,
           item_id: detail.item_id,
