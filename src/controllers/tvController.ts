@@ -7,6 +7,7 @@ interface TvPromotionDetail {
   detail_id: number;
   item_id: number;
   item_name: string | null;
+  item_img: string | null;
   item_code: string | null;
   price: number | null;
   type: string | null;
@@ -83,11 +84,18 @@ export class TvController {
       const items = itemIds.length
         ? await prisma.items.findMany({
             where: { item_id: { in: itemIds } },
-            select: { item_id: true, name: true, code: true, price: true, quantity: true }
+            select: { item_id: true, name: true, code: true, price: true, quantity: true, img: true }
           })
         : [];
 
-      const itemMap = new Map<number, { item_id: number; name: string | null; code: string | null; price: number; quantity: number }>();
+      const itemMap = new Map<number, {
+        item_id: number;
+        name: string | null;
+        code: string | null;
+        price: number;
+        quantity: number;
+        img: string | null;
+      }>();
 
       for (const item of items) {
         const price = item.price !== null && item.price !== undefined ? Number(item.price) : null;
@@ -101,7 +109,8 @@ export class TvController {
           name: item.name ?? null,
           code: item.code ? item.code.toString() : null,
           price,
-          quantity
+          quantity,
+          img: item.img ?? null
         });
       }
 
@@ -115,6 +124,7 @@ export class TvController {
           detail_id: detail.detail_id,
           item_id: detail.item_id,
           item_name: itemInfo?.name ?? null,
+          item_img: itemInfo?.img ?? null,
           item_code: itemInfo?.code ?? null,
           price: itemInfo?.price ?? null,
           type: detail.type,
