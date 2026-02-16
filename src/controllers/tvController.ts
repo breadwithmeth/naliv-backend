@@ -77,8 +77,10 @@ export class TvController {
           })
         : [];
 
+      const subtractDetails = details.filter(detail => detail.type === 'SUBTRACT');
+
       const itemIds = Array.from(
-        new Set(details.map(detail => detail.item_id).filter((id): id is number => typeof id === 'number'))
+        new Set(subtractDetails.map(detail => detail.item_id).filter((id): id is number => typeof id === 'number'))
       );
 
       const items = itemIds.length
@@ -115,7 +117,7 @@ export class TvController {
       }
 
       const detailsByPromotion = new Map<number, TvPromotionDetail[]>();
-      for (const detail of details) {
+      for (const detail of subtractDetails) {
         const itemInfo = itemMap.get(detail.item_id);
         if (!itemInfo) {
           continue; // Пропускаем товары без цены или без остатка
@@ -141,13 +143,17 @@ export class TvController {
         detailsByPromotion.get(detail.marketing_promotion_id)!.push(normalized);
       }
 
+      const promotionsWithDetails = promotions.filter(p =>
+        (detailsByPromotion.get(p.marketing_promotion_id)?.length ?? 0) > 0
+      );
+
       const payload: TvPromotionsPayload = {
         business: {
           business_id: businessId,
           name: req.business.name,
           uuid: req.business.uuid
         },
-        promotions: promotions.map(promotion => ({
+        promotions: promotionsWithDetails.map(promotion => ({
           marketing_promotion_id: promotion.marketing_promotion_id,
           name: promotion.public_name ?? promotion.name ?? null,
           internal_name: promotion.name,
@@ -156,13 +162,13 @@ export class TvController {
           end_promotion_date: promotion.end_promotion_date,
           details: detailsByPromotion.get(promotion.marketing_promotion_id) ?? []
         })),
-        promotions_count: promotions.length
+        promotions_count: promotionsWithDetails.length
       };
 
       res.json({
         success: true,
         data: payload,
-        message: promotions.length > 0
+        message: promotionsWithDetails.length > 0
           ? 'Активные скидки и акции для бизнеса получены'
           : 'Для бизнеса нет активных акций'
       });
