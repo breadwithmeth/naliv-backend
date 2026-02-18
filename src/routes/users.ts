@@ -17,13 +17,13 @@ router.get('/liked-items', authenticateToken, LikedItemsController.getUserLikedI
 
 // ===== ПОЛЬЗОВАТЕЛИ (административные) =====
 // GET /api/users - Получить всех пользователей (без авторизации для админки)
-router.get('/', UserItemsController.getAllUsers);
+//router.get('/', UserItemsController.getAllUsers);
 
 // GET /api/users/:id - Получить пользователя по ID (без авторизации для админки)
-router.get('/:id', UserItemsController.getUserById);
+//router.get('/:id', UserItemsController.getUserById);
 
 // POST /api/users - Создать нового пользователя (без авторизации для админки)
-router.post('/', UserItemsController.createUser);
+//router.post('/', UserItemsController.createUser);
 
 // ===== ТОВАРЫ ДЛЯ ПОЛЬЗОВАТЕЛЕЙ =====
 // GET /api/users/:userId/items/business/:businessId - Получить товары пользователя по бизнесу

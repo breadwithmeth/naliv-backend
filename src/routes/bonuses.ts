@@ -21,14 +21,14 @@ router.get('/', authenticateToken, getUserBonuses);
  * @desc Создать бонусную карту для пользователя
  * @access Private
  */
-router.post('/card', authenticateToken, createBonusCard);
+//router.post('/card', authenticateToken, createBonusCard);
 
 /**
  * @route POST /bonuses/add
  * @desc Добавить бонусы пользователю
  * @access Private
  */
-router.post('/add', authenticateToken, addBonuses);
+//router.post('/add', authenticateToken, addBonuses);
 
 /**
  * @route GET /bonuses/history
