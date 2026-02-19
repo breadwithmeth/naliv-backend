@@ -62,96 +62,6 @@ interface HalykPostLinkResponse {
   terminal: string;
 }
 
-export class PaymentController {
-  /**
-   * Получить все доступные методы оплаты
-   * GET /api/payments/methods
-   */
-  static async getPaymentMethods(req: Request, res: Response, next: NextFunction) {
-    try {
-      const paymentMethods = await prisma.payment_types.findMany({
-        orderBy: { payment_type_id: 'asc' }
-      });
-
-      res.json({
-        success: true,
-        data: paymentMethods,
-        message: 'Методы оплаты получены успешно'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка получения методов оплаты:', error);
-      next(createError(500, `Ошибка получения методов оплаты: ${error.message}`));
-    }
-  }
-
-  /**
-   * Получить конкретный метод оплаты по ID
-   * GET /api/payments/methods/:id
-   */
-  static async getPaymentMethodById(req: Request, res: Response, next: NextFunction) {
-    try {
-      const paymentTypeId = parseInt(req.params.id);
-
-      if (isNaN(paymentTypeId)) {
-        return next(createError(400, 'Некорректный ID метода оплаты'));
-      }
-
-      const paymentMethod = await prisma.payment_types.findUnique({
-        where: { payment_type_id: paymentTypeId }
-      });
-
-      if (!paymentMethod) {
-        return next(createError(404, 'Метод оплаты не найден'));
-      }
-
-      res.json({
-        success: true,
-        data: paymentMethod,
-        message: 'Метод оплаты найден'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка получения метода оплаты:', error);
-      next(createError(500, `Ошибка получения метода оплаты: ${error.message}`));
-    }
-  }
-
-  /**
-   * Получить только активные методы оплаты (in_app = 1)
-   * GET /api/payments/methods/active
-   */
-  static async getActivePaymentMethods(req: Request, res: Response, next: NextFunction) {
-    try {
-      const activePaymentMethods = await prisma.payment_types.findMany({
-        where: { in_app: 1 },
-        orderBy: { payment_type_id: 'asc' }
-      });
-
-      res.json({
-        success: true,
-        data: activePaymentMethods,
-        message: 'Активные методы оплаты получены успешно'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка получения активных методов оплаты:', error);
-      next(createError(500, `Ошибка получения активных методов оплаты: ${error.message}`));
-    }
-  }
-
-  /**
-   * Генерация уникального invoiceId для сохранения карт
-   */
-  private static generateCardInvoiceId(userId: number, isRefresh: boolean = false): string {
-    // Используем полный timestamp с секундами для максимальной уникальности
-    const now = new Date();
-    const timestamp = Math.floor(now.getTime() / 1000); // Unix timestamp в секундах
-    const milliseconds = now.getMilliseconds().toString().padStart(3, '0'); // миллисекунды
-    
-    const userPart = userId.toString().padStart(3, '0').slice(-3); // Последние 3 цифры user_id
-    const randomPart = Math.floor(Math.random() * 100).toString().padStart(2, '0'); // 2 случайные цифры
-    const refreshFlag = isRefresh ? '1' : '0'; // 1 цифра для флага обновления
     
     // Формат: CARD + timestamp(10) + milliseconds(3) + user(3) + random(2) + refresh(1) = 24 символа
     const invoiceId = `0000${timestamp}${milliseconds}${userPart}${randomPart}${refreshFlag}`;
@@ -1386,99 +1296,14 @@ export class PaymentController {
         return next(createError(400, 'Необходимо указать invoiceId'));
       }
 
-      console.log('Статус платежа:', {
-        invoiceId,
-        error,
-        errorMessage,
-        userId: req.user.user_id,
-        timestamp: new Date().toISOString()
-      });
-
-      // Обрабатываем различные типы ошибок
-      let responseData: any = {
-        invoiceId,
-        status: 'error',
-        canRetry: true
-      };
-
-      if (error || errorMessage) {
-        // Определяем тип ошибки и даем рекомендации
-        const errorText = errorMessage || error || '';
-        
-        if (errorText.includes('время') || errorText.includes('истекло') || errorText.includes('timeout')) {
-          responseData = {
-            ...responseData,
-            errorType: 'timeout',
-            userMessage: 'Время сеанса истекло. Попробуйте создать новую сессию.',
-            recommendation: 'refresh_token',
-            canRetry: true
-          };
-        } else if (errorText.includes('отменен') || errorText.includes('cancel')) {
-          responseData = {
-            ...responseData,
-            errorType: 'cancelled',
-            userMessage: 'Платеж был отменен пользователем.',
-            recommendation: 'user_cancelled',
-            canRetry: true
-          };
-        } else if (errorText.includes('карта') || errorText.includes('card')) {
-          responseData = {
-            ...responseData,
-            errorType: 'card_error',
-            userMessage: 'Ошибка при работе с картой. Проверьте данные карты.',
-            recommendation: 'check_card_data',
-            canRetry: true
-          };
-        } else {
-          responseData = {
-            ...responseData,
-            errorType: 'unknown',
+        res.status(410).json({ success: false, message: 'Endpoint disabled' });
             userMessage: 'Произошла неизвестная ошибка. Попробуйте еще раз.',
             recommendation: 'retry',
             canRetry: true
           };
         }
       } else {
-        responseData = {
-          invoiceId,
-          status: 'success',
-          userMessage: 'Статус платежа проверяется...'
-        };
-      }
-
-      res.json({
-        success: true,
-        data: responseData,
-        message: 'Статус платежа обработан'
-      });
-
-    } catch (error: any) {
-      console.error('Ошибка получения статуса платежа:', error);
-      next(createError(500, `Ошибка получения статуса: ${error.message}`));
-    }
-  }
-
-  /**
-   * Создание заказа с оплатой - интеграция с OrderController
-   * POST /api/payments/create-order-with-payment
-   */
-  static async createOrderWithPayment(req: AuthRequest, res: Response, next: NextFunction) {
-    try {
-      // Проверяем авторизацию пользователя
-      if (!req.user) {
-        return next(createError(401, 'Необходима авторизация'));
-      }
-
-      const {
-        business_id,
-        address_id,
-        items,
-        bonus = 0,
-        extra,
-        delivery_type,
-        delivery_date,
-        payment_method = 'card', // 'card' или 'saved_card'
-        saved_card_id, // ID сохраненной карты (если payment_method = 'saved_card')
+        res.status(410).json({ success: false, message: 'Endpoint disabled' });
         backLink = "https://chorenn.naliv.kz/success",
         failureBackLink = "https://chorenn.naliv.kz/failure",
         postLink = "https://chorenn.naliv.kz/api/payment.php"

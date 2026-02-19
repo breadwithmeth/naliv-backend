@@ -7,7 +7,6 @@ import apiRoutes from './routes/api';
 import { connectDatabase } from './database';
 import FirebaseAdminService from './services/firebaseAdmin';
 
-// Загрузка переменных окружения
 dotenv.config();
 
 class App {
