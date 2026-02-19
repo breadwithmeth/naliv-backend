@@ -1,29 +1,32 @@
 import { Router } from 'express';
 import { AuthController } from '../controllers/authController';
 import { authenticateToken } from '../middleware/auth';
+import { authLimiter, sendCodeLimiter } from '../middleware/rateLimiter';
+import { validateRequest } from '../middleware/validateRequest';
+import { authSchemas } from '../validation/schemas';
 
 const router = Router();
 
 // ===== РЕГИСТРАЦИЯ И АВТОРИЗАЦИЯ =====
 // POST /api/auth/register - Регистрация нового пользователя
 // Body: { "phone": "+77077707600", "password": "password123", "name": "Иван", "first_name": "Иван", "last_name": "Иванов" }
-router.post('/register', AuthController.register);
+router.post('/register', authLimiter, validateRequest(authSchemas.register), AuthController.register);
 
 // POST /api/auth/login - Авторизация пользователя
 // Body: { "phone": "+77077707600", "password": "password123" }
-router.post('/login', AuthController.login);
+router.post('/login', authLimiter, validateRequest(authSchemas.login), AuthController.login);
 
 // POST /api/auth/send-code - Отправка одноразового кода
 // Body: { "phone_number": "+77077707600" }
-router.post('/send-code', AuthController.sendCode);
+router.post('/send-code', sendCodeLimiter, validateRequest(authSchemas.sendCode), AuthController.sendCode);
 
 // POST /api/auth/verify-code - Авторизация по одноразовому коду
 // Body: { "phone_number": "+77077707600", "onetime_code": "1234" }
-router.post('/verify-code', AuthController.verifyCode);
+router.post('/verify-code', authLimiter, validateRequest(authSchemas.verifyCode), AuthController.verifyCode);
 
 // POST /api/auth/refresh - Обновить JWT по session_token (после входа по коду)
 // Body: { "session_token": "..." }
-router.post('/refresh', AuthController.refreshSession);
+router.post('/refresh', authLimiter, validateRequest(authSchemas.refresh), AuthController.refreshSession);
 
 // POST /api/auth/logout - Выход из системы (требует авторизации)
 // Headers: { "Authorization": "Bearer <token>" }
@@ -43,7 +46,7 @@ router.put('/profile', authenticateToken, AuthController.updateProfile);
 // POST /api/auth/change-password - Смена пароля
 // Headers: { "Authorization": "Bearer <token>" }
 // Body: { "current_password": "old_password", "new_password": "new_password" }
-router.post('/change-password', authenticateToken, AuthController.changePassword);
+router.post('/change-password', authenticateToken, validateRequest(authSchemas.changePassword), AuthController.changePassword);
 // GET /api/auth/full-info - Получить профиль, адреса и сохраненные карты
 // Headers: { "Authorization": "Bearer <token>" }
 router.get('/full-info', authenticateToken, AuthController.getFullInfo);

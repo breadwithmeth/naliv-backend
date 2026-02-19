@@ -61,6 +61,19 @@ export const authenticateCourier = async (req: CourierAuthRequest, res: Response
 };
 
 /**
+ * Middleware для проверки прав курьера-админа (courier_type = 10)
+ */
+export const requireAdminCourier = (req: CourierAuthRequest, res: Response, next: NextFunction) => {
+  if (!req.courier) {
+    return next(createError(401, 'Требуется авторизация курьера'));
+  }
+  if (req.courier.courier_type !== 10) {
+    return next(createError(403, 'Требуются права курьера-админа'));
+  }
+  next();
+};
+
+/**
  * Опциональная аутентификация курьера
  */
 export const optionalCourierAuth = async (req: CourierAuthRequest, res: Response, next: NextFunction) => {

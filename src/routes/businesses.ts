@@ -11,7 +11,7 @@ router.get('/', BusinessController.getAllBusinesses);
 // GET /api/businesses/discount-cards - Получить все дисконтные карты пользователей
 // Query params: ?page=1&limit=50&search=user123
 // Требует авторизации бизнеса
-router.get('/discount-cards', BusinessController.getDiscountCards);
+router.get('/discount-cards', authenticateBusiness, BusinessController.getDiscountCards);
 
 // GET /api/businesses/non-app-users - Получить пользователей не из приложения (is_app_user = 0)
 // Query params: ?page=1&limit=50&search=user123

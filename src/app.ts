@@ -36,47 +36,33 @@ class App {
 
   private initializeMiddlewares(): void {
     // Безопасность с настройками для Halyk Bank API
+    const isProd = process.env.NODE_ENV === 'production';
+    const halykHosts = [
+      'https://epay.homebank.kz',
+      'https://api.homebank.kz',
+      'https://secure.homebank.kz'
+    ];
+
     this.app.use(helmet({
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: [
-            "'self'",
-            "'unsafe-inline'", // Разрешаем inline скрипты для Halyk Bank
-            "'unsafe-eval'", // Разрешаем eval для динамических скриптов
-            "https://epay.homebank.kz", // Halyk Bank API
-            "https://api.homebank.kz", // Дополнительный домен Halyk Bank
-            "https://secure.homebank.kz" // Secure домен Halyk Bank
-          ],
-          styleSrc: [
-            "'self'",
-            "'unsafe-inline'" // Разрешаем inline стили
-          ],
-          imgSrc: [
-            "'self'",
-            "data:",
-            "https:", // Разрешаем загрузку изображений по HTTPS
-            "http:" // Разрешаем загрузку изображений по HTTP (для разработки)
-          ],
-          connectSrc: [
-            "'self'",
-            "https://epay.homebank.kz",
-            "https://api.homebank.kz",
-            "https://secure.homebank.kz"
-          ],
-          frameSrc: [
-            "'self'",
-            "https://epay.homebank.kz",
-            "https://api.homebank.kz",
-            "https://secure.homebank.kz"
-          ],
-          formAction: [
-            "'self'",
-            "https://epay.homebank.kz",
-            "https://api.homebank.kz"
-          ]
+          scriptSrc: isProd
+            ? ["'self'", ...halykHosts]
+            : ["'self'", ...halykHosts, "'unsafe-inline'", "'unsafe-eval'"],
+          styleSrc: isProd
+            ? ["'self'"]
+            : ["'self'", "'unsafe-inline'"],
+          imgSrc: ["'self'", 'data:', 'https:'],
+          connectSrc: ["'self'", ...halykHosts],
+          frameSrc: ["'self'", ...halykHosts],
+          formAction: ["'self'", ...halykHosts],
+          upgradeInsecureRequests: isProd ? [] : null
         }
-      }
+      },
+      hsts: isProd ? { maxAge: 31536000, includeSubDomains: true, preload: true } : undefined,
+      frameguard: { action: 'deny' },
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' }
     }));
     
     // CORS - разрешаем запросы из всех источников

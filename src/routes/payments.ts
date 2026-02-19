@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { PaymentController } from '../controllers/paymentController';
 import { authenticateToken } from '../middleware/auth';
+import { paymentsLimiter } from '../middleware/rateLimiter';
+import { validateRequest } from '../middleware/validateRequest';
+import { paymentSchemas } from '../validation/schemas';
 
 const router = Router();
 
@@ -8,15 +11,15 @@ const router = Router();
 
 // GET /api/payments/methods - Получить все методы оплаты
 // Возвращает все методы оплаты из таблицы payment_types
-router.get('/methods', PaymentController.getPaymentMethods);
+//router.get('/methods', PaymentController.getPaymentMethods);
 
 // GET /api/payments/methods/active - Получить только активные методы оплаты (in_app = 1)
 // Возвращает только методы оплаты, доступные в приложении
-router.get('/methods/active', PaymentController.getActivePaymentMethods);
+//router.get('/methods/active', PaymentController.getActivePaymentMethods);
 
 // GET /api/payments/methods/:id - Получить конкретный метод оплаты по ID
 // Возвращает информацию о конкретном методе оплаты
-router.get('/methods/:id', PaymentController.getPaymentMethodById);
+//router.get('/methods/:id', PaymentController.getPaymentMethodById);
 
 // ===== СОХРАНЕНИЕ КАРТ HALYK BANK =====
 
@@ -26,7 +29,7 @@ router.get('/methods/:id', PaymentController.getPaymentMethodById);
  * @access Private (требует JWT токен)
  * @returns { success: boolean, data: { addCardLink, token, expiresIn, userId, instructions }, message: string }
  */
-router.post('/generate-add-card-link', authenticateToken, PaymentController.generateAddCardLink);
+router.post('/generate-add-card-link', authenticateToken, paymentsLimiter, PaymentController.generateAddCardLink);
 
 /**
  * @route GET /api/payments/add-card
@@ -62,7 +65,7 @@ router.get('/add-card/failure', PaymentController.addCardFailure);
  * @body { backLink: string, failureBackLink: string, postLink: string, description?: string, language?: string }
  * @returns { success: boolean, data: { paymentObject, jsLibraryUrl, invoiceId, instructions }, message: string }
  */
-router.post('/save-card/init', authenticateToken, PaymentController.initCardSave);
+router.post('/save-card/init', authenticateToken, paymentsLimiter, validateRequest(paymentSchemas.addCardInit), PaymentController.initCardSave);
 
 /**
  * @route POST /api/payments/save-card/test-init
@@ -71,7 +74,7 @@ router.post('/save-card/init', authenticateToken, PaymentController.initCardSave
  * @body { userId?: number, amount?: number, invoiceId?: string }
  * @returns { success: boolean, data: { auth, invoiceId, amount, userId, timestamp }, message: string }
  */
-router.post('/save-card/test-init', PaymentController.testCardSaveInit);
+router.post('/save-card/test-init', paymentsLimiter, validateRequest(paymentSchemas.testInit), PaymentController.testCardSaveInit);
 
 /**
  * @route POST /api/payments/test-invoice-generation
@@ -80,7 +83,7 @@ router.post('/save-card/test-init', PaymentController.testCardSaveInit);
  * @body { userId?: number, count?: number }
  * @returns { success: boolean, data: { generatedIds, totalGenerated, uniqueCount, allUnique }, message: string }
  */
-router.post('/test-invoice-generation', PaymentController.testInvoiceGeneration);
+router.post('/test-invoice-generation', paymentsLimiter, validateRequest(paymentSchemas.testInvoiceGeneration), PaymentController.testInvoiceGeneration);
 
 /**
  * @route POST /api/payments/save-card/refresh-init
@@ -89,7 +92,7 @@ router.post('/test-invoice-generation', PaymentController.testInvoiceGeneration)
  * @body { backLink: string, failureBackLink: string, postLink: string, description?: string, language?: string }
  * @returns { success: boolean, data: { paymentObject, jsLibraryUrl, invoiceId, refreshed: true }, message: string }
  */
-router.post('/save-card/refresh-init', authenticateToken, PaymentController.refreshCardSaveInit);
+router.post('/save-card/refresh-init', authenticateToken, paymentsLimiter, validateRequest(paymentSchemas.addCardInit), PaymentController.refreshCardSaveInit);
 
 /**
  * @route POST /api/payments/status
@@ -98,7 +101,7 @@ router.post('/save-card/refresh-init', authenticateToken, PaymentController.refr
  * @body { invoiceId: string, error?: string, errorMessage?: string }
  * @returns { success: boolean, data: { status, errorType?, userMessage, recommendation?, canRetry }, message: string }
  */
-router.post('/status', authenticateToken, PaymentController.getPaymentStatus);
+router.post('/status', authenticateToken, paymentsLimiter, validateRequest(paymentSchemas.status), PaymentController.getPaymentStatus);
 
 /**
  * @route POST /api/payments/save-card/postlink
@@ -107,7 +110,7 @@ router.post('/status', authenticateToken, PaymentController.getPaymentStatus);
  * @body HalykPostLinkResponse
  * @returns { success: boolean, message: string }
  */
-router.post('/save-card/postlink', PaymentController.handleCardSavePostLink);
+router.post('/save-card/postlink', paymentsLimiter, PaymentController.handleCardSavePostLink);
 
 /**
  * @route POST /api/payments/test-invoice-generation
@@ -116,7 +119,7 @@ router.post('/save-card/postlink', PaymentController.handleCardSavePostLink);
  * @body { userId?: number }
  * @returns { success: boolean, data: { generatedIds, uniqueCount, allUnique } }
  */
-router.post('/test-invoice-generation', async (req, res) => {
+router.post('/test-invoice-generation', paymentsLimiter, validateRequest(paymentSchemas.testInvoiceGeneration), async (req, res) => {
   try {
     const { userId = 1 } = req.body;
     
@@ -170,7 +173,7 @@ router.post('/test-invoice-generation', async (req, res) => {
  * @body { backLink, failureBackLink, postLink, description?, language? }
  * @returns { success: boolean, data: { paymentObject, jsLibraryUrl, invoiceId } }
  */
-router.post('/save-card/test-init', async (req, res) => {
+router.post('/save-card/test-init', paymentsLimiter, validateRequest(paymentSchemas.testInit), async (req, res) => {
   try {
     const testUserId = req.body.userId || 252; // Из запроса или дефолтный
     
