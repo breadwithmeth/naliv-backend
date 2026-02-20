@@ -16,6 +16,36 @@ export interface EmployeeAuthRequest extends Request {
 }
 
 export class EmployeeController {
+  private static isStrictIntegerString(value: string): boolean {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    if (!/^\d+$/.test(trimmed)) return false;
+    const asNumber = Number.parseInt(trimmed, 10);
+    return Number.isSafeInteger(asNumber) && String(asNumber) === trimmed;
+  }
+
+  private static formatDeliveryAddressWithAggregator(
+    aggregatorName: string | null,
+    aggregatorOrderId: string | null,
+    address: string
+  ): string {
+    const cleanAddress = String(address ?? '').trim();
+
+    const cleanAggregatorName = String(aggregatorName ?? '').trim();
+    const cleanAggregatorOrderId = String(aggregatorOrderId ?? '').trim();
+
+    if (!cleanAggregatorName && !cleanAggregatorOrderId) {
+      return cleanAddress;
+    }
+
+    const namePart = cleanAggregatorName || 'Агрегатор';
+    const prefix = cleanAggregatorOrderId
+      ? `${namePart} - ${cleanAggregatorOrderId}`
+      : namePart;
+
+    return prefix;
+  }
+
   private static getStatusName(status: number): string {
     const statusNames: { [key: number]: string } = {
       0: 'Новый заказ',
@@ -131,8 +161,26 @@ export class EmployeeController {
           orderBy: { order_id: 'desc' }
         });
 
+        const aggregatorRawValues = [
+          ...new Set(
+            orders
+              .map(o => o.aggregator)
+              .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+          )
+        ];
+
+        const aggregatorIds: number[] = [];
+        const aggregatorNames: string[] = [];
+        for (const raw of aggregatorRawValues) {
+          if (EmployeeController.isStrictIntegerString(raw)) {
+            aggregatorIds.push(Number.parseInt(raw.trim(), 10));
+          } else {
+            aggregatorNames.push(raw.trim());
+          }
+        }
+
         // Продолжаем обработку заказов...
-        const [users, addresses, statuses, orderItems, orderCosts, paymentTypes] = await Promise.all([
+        const [users, addresses, statuses, orderItems, orderCosts, paymentTypes, aggregators] = await Promise.all([
           prisma.user.findMany({
             where: { user_id: { in: orders.map(o => o.user_id) } },
             select: { user_id: true, name: true, first_name: true, last_name: true, login: true }
@@ -153,8 +201,27 @@ export class EmployeeController {
           }),
           prisma.payment_types.findMany({
             where: { payment_type_id: { in: orders.map(o => o.payment_type_id).filter(id => id !== null) as number[] } }
-          })
+          }),
+
+          (aggregatorIds.length || aggregatorNames.length)
+            ? prisma.aggregators.findMany({
+                where: {
+                  OR: [
+                    ...(aggregatorIds.length ? [{ aggregator_id: { in: aggregatorIds } }] : []),
+                    ...(aggregatorNames.length ? [{ name: { in: aggregatorNames } }] : [])
+                  ]
+                },
+                select: { aggregator_id: true, name: true }
+              })
+            : Promise.resolve([])
         ]);
+
+        const aggregatorsById = new Map<number, { aggregator_id: number; name: string }>(
+          (aggregators || []).map(a => [a.aggregator_id, a])
+        );
+        const aggregatorsByName = new Map<string, { aggregator_id: number; name: string }>(
+          (aggregators || []).map(a => [a.name, a])
+        );
 
         const usersMap = new Map(users.map(u => [u.user_id, u]));
         const addressesMap = new Map(addresses.map(a => [a.address_id, a]));
@@ -182,6 +249,23 @@ export class EmployeeController {
           const cost = orderCostsMap.get(order.order_id);
           const totalItemsCount = items.reduce((sum, item) => sum + (item.amount || 0), 0);
 
+          const resolvedAggregatorName = (() => {
+            const raw = order.aggregator;
+            if (!raw) return null;
+            if (EmployeeController.isStrictIntegerString(raw)) {
+              return aggregatorsById.get(Number.parseInt(raw.trim(), 10))?.name ?? null;
+            }
+            return aggregatorsByName.get(raw.trim())?.name ?? raw.trim();
+          })();
+
+          const aggregatorOrderId = order.aggregator_order_id ? String(order.aggregator_order_id).trim() : null;
+
+          const aggregatorAddress = EmployeeController.formatDeliveryAddressWithAggregator(
+            resolvedAggregatorName,
+            aggregatorOrderId,
+            address?.address ?? ''
+          );
+
           return {
             order_id: order.order_id,
             order_uuid: order.order_uuid,
@@ -189,12 +273,22 @@ export class EmployeeController {
               user_id: user.user_id,
               name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь'
             } : null,
-            delivery_address: address ? {
-              address_id: address.address_id,
-              name: address.name,
-              address: address.address,
-              coordinates: { lat: address.lat, lon: address.lon },
-              details: { apartment: address.apartment, entrance: address.entrance, floor: address.floor, comment: address.other }
+            delivery_address: (address || (resolvedAggregatorName || aggregatorOrderId)) ? {
+              address_id: address?.address_id ?? order.address_id,
+              name: address?.name ?? 'Адрес из агрегатора',
+              address: aggregatorAddress || (address?.address ?? ''),
+              coordinates: address ? { lat: address.lat, lon: address.lon } : null,
+              details: address ? {
+                apartment: address.apartment,
+                entrance: address.entrance,
+                floor: address.floor,
+                comment: address.other
+              } : {
+                apartment: '',
+                entrance: '',
+                floor: '',
+                comment: ''
+              }
             } : null,
             delivery_type: order.delivery_type,
             delivery_price: order.delivery_price,
@@ -286,6 +380,24 @@ export class EmployeeController {
       // Получаем ID заказов для дополнительных запросов
       const orderIds = orders.map(order => order.order_id);
 
+      const aggregatorRawValues = [
+        ...new Set(
+          orders
+            .map(o => o.aggregator)
+            .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+        )
+      ];
+
+      const aggregatorIds: number[] = [];
+      const aggregatorNames: string[] = [];
+      for (const raw of aggregatorRawValues) {
+        if (EmployeeController.isStrictIntegerString(raw)) {
+          aggregatorIds.push(Number.parseInt(raw.trim(), 10));
+        } else {
+          aggregatorNames.push(raw.trim());
+        }
+      }
+
       // Получаем дополнительные данные параллельно
       const [
         users,
@@ -293,7 +405,8 @@ export class EmployeeController {
         statuses,
         orderItems,
         orderCosts,
-        paymentTypes
+        paymentTypes,
+        aggregators
       ] = await Promise.all([
         // Пользователи
         prisma.user.findMany({
@@ -339,8 +452,27 @@ export class EmployeeController {
         // Типы оплаты
         prisma.payment_types.findMany({
           where: { payment_type_id: { in: orders.map(o => o.payment_type_id).filter(id => id !== null) as number[] } }
-        })
+        }),
+
+        (aggregatorIds.length || aggregatorNames.length)
+          ? prisma.aggregators.findMany({
+              where: {
+                OR: [
+                  ...(aggregatorIds.length ? [{ aggregator_id: { in: aggregatorIds } }] : []),
+                  ...(aggregatorNames.length ? [{ name: { in: aggregatorNames } }] : [])
+                ]
+              },
+              select: { aggregator_id: true, name: true }
+            })
+          : Promise.resolve([])
       ]);
+
+      const aggregatorsById = new Map<number, { aggregator_id: number; name: string }>(
+        (aggregators || []).map(a => [a.aggregator_id, a])
+      );
+      const aggregatorsByName = new Map<string, { aggregator_id: number; name: string }>(
+        (aggregators || []).map(a => [a.name, a])
+      );
 
       // Создаем мапы для быстрого доступа
       const usersMap = new Map(users.map(u => [u.user_id, u]));
@@ -380,6 +512,23 @@ export class EmployeeController {
         
         const totalItemsCount = items.reduce((sum, item) => sum + (item.amount || 0), 0);
         
+        const resolvedAggregatorName = (() => {
+          const raw = order.aggregator;
+          if (!raw) return null;
+          if (EmployeeController.isStrictIntegerString(raw)) {
+            return aggregatorsById.get(Number.parseInt(raw.trim(), 10))?.name ?? null;
+          }
+          return aggregatorsByName.get(raw.trim())?.name ?? raw.trim();
+        })();
+
+        const aggregatorOrderId = order.aggregator_order_id ? String(order.aggregator_order_id).trim() : null;
+
+        const aggregatorAddress = EmployeeController.formatDeliveryAddressWithAggregator(
+          resolvedAggregatorName,
+          aggregatorOrderId,
+          address?.address ?? ''
+        );
+
         return {
           order_id: order.order_id,
           order_uuid: order.order_uuid,
@@ -387,19 +536,24 @@ export class EmployeeController {
             user_id: user.user_id,
             name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь'
           } : null,
-          delivery_address: address ? {
-            address_id: address.address_id,
-            name: address.name,
-            address: address.address,
-            coordinates: {
+          delivery_address: (address || (resolvedAggregatorName || aggregatorOrderId)) ? {
+            address_id: address?.address_id ?? order.address_id,
+            name: address?.name ?? 'Адрес из агрегатора',
+            address: aggregatorAddress || (address?.address ?? ''),
+            coordinates: address ? {
               lat: address.lat,
               lon: address.lon
-            },
-            details: {
+            } : null,
+            details: address ? {
               apartment: address.apartment,
               entrance: address.entrance,
               floor: address.floor,
               comment: address.other
+            } : {
+              apartment: '',
+              entrance: '',
+              floor: '',
+              comment: ''
             }
           } : null,
           delivery_type: order.delivery_type,
@@ -489,7 +643,8 @@ export class EmployeeController {
         statuses,
         orderItems,
         orderCost,
-        paymentType
+        paymentType,
+        aggregatorRecord
       ] = await Promise.all([
         // Пользователь
         prisma.user.findUnique({
@@ -542,8 +697,33 @@ export class EmployeeController {
         // Тип оплаты
         order.payment_type_id ? prisma.payment_types.findUnique({
           where: { payment_type_id: order.payment_type_id }
-        }) : null
+        }) : null,
+
+        // Агрегатор
+        order.aggregator
+          ? prisma.aggregators.findFirst({
+              where: EmployeeController.isStrictIntegerString(order.aggregator)
+                ? { aggregator_id: Number.parseInt(order.aggregator.trim(), 10) }
+                : { name: order.aggregator.trim() },
+              select: { aggregator_id: true, name: true }
+            })
+          : null
       ]);
+
+      const resolvedAggregatorName = (() => {
+        const raw = order.aggregator;
+        if (!raw) return null;
+        if (aggregatorRecord?.name) return aggregatorRecord.name;
+        return EmployeeController.isStrictIntegerString(raw) ? null : raw.trim();
+      })();
+
+      const aggregatorOrderId = order.aggregator_order_id ? String(order.aggregator_order_id).trim() : null;
+
+      const aggregatorAddress = EmployeeController.formatDeliveryAddressWithAggregator(
+        resolvedAggregatorName,
+        aggregatorOrderId,
+        address?.address ?? ''
+      );
 
       // Получаем пересчитанную стоимость заказа через OrderController
       const orderTotals = await OrderController.calculateOrderCostPublic(order_id);
@@ -741,19 +921,24 @@ export class EmployeeController {
           user_id: user.user_id,
           name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь'
         } : null,
-        delivery_address: address ? {
-          address_id: address.address_id,
-          name: address.name,
-          address: address.address,
-          coordinates: {
+        delivery_address: (address || (resolvedAggregatorName || aggregatorOrderId)) ? {
+          address_id: address?.address_id ?? order.address_id,
+          name: address?.name ?? 'Адрес из агрегатора',
+          address: aggregatorAddress || (address?.address ?? ''),
+          coordinates: address ? {
             lat: address.lat,
             lon: address.lon
-          },
-          details: {
+          } : null,
+          details: address ? {
             apartment: address.apartment,
             entrance: address.entrance,
             floor: address.floor,
             comment: address.other
+          } : {
+            apartment: '',
+            entrance: '',
+            floor: '',
+            comment: ''
           }
         } : null,
         delivery_type: order.delivery_type,

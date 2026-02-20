@@ -36,7 +36,6 @@ export class BusinessOrderController {
     
   ): string {
     const cleanAddress = String(address ?? '').trim();
-    if (!cleanAddress) return cleanAddress;
 
     const cleanAggregatorName = String(aggregatorName ?? '').trim();
     const cleanAggregatorOrderId = String(aggregatorOrderId ?? '').trim();
@@ -45,16 +44,18 @@ export class BusinessOrderController {
       return cleanAddress;
     }
 
+    const namePart = cleanAggregatorName || 'Агрегатор';
     const prefix = cleanAggregatorOrderId
-      ? `${cleanAggregatorName || 'Агрегатор'} №${cleanAggregatorOrderId}`
-      : cleanAggregatorName;
+      ? `${namePart} - ${cleanAggregatorOrderId}`
+      : namePart;
 
-    // Не дублируем префикс, если он уже в начале
-    if (prefix && cleanAddress.startsWith(prefix)) {
+    // Если адрес уже выглядит как префикс агрегатора — не трогаем
+    if (cleanAddress === prefix) {
       return cleanAddress;
     }
 
-    return prefix ? `${prefix}, ${cleanAddress}` : cleanAddress;
+    // По требованию: для заказов агрегатора поле address должно быть вида "WOLT - 111"
+    return prefix;
   }
 
   /**
@@ -274,6 +275,12 @@ export class BusinessOrderController {
 
         const aggregatorOrderId = order.aggregator_order_id ? String(order.aggregator_order_id).trim() : null;
 
+        const aggregatorAddress = BusinessOrderController.formatDeliveryAddressWithAggregator(
+          resolvedAggregatorName,
+          aggregatorOrderId,
+          address?.address ?? ''
+        );
+
         return {
           order_id: order.order_id,
           order_uuid: order.order_uuid,
@@ -281,24 +288,24 @@ export class BusinessOrderController {
             user_id: user.user_id,
             name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь'
           } : null,
-          delivery_address: address ? {
-            address_id: address.address_id,
-            name: address.name,
-            address: BusinessOrderController.formatDeliveryAddressWithAggregator(
-              
-              resolvedAggregatorName,
-              aggregatorOrderId,
-              address.address
-            ),
-            coordinates: {
+          delivery_address: (address || aggregatorAddress) ? {
+            address_id: address?.address_id ?? order.address_id,
+            name: address?.name ?? 'Адрес из агрегатора',
+            address: aggregatorAddress || (address?.address ?? ''),
+            coordinates: address ? {
               lat: address.lat,
               lon: address.lon
-            },
-            details: {
+            } : null,
+            details: address ? {
               apartment: address.apartment,
               entrance: address.entrance,
               floor: address.floor,
               comment: address.other
+            } : {
+              apartment: '',
+              entrance: '',
+              floor: '',
+              comment: ''
             }
           } : null,
           delivery_type: order.delivery_type,
@@ -584,24 +591,28 @@ export class BusinessOrderController {
           user_id: user.user_id,
           name: user.name || `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Пользователь'
         } : null,
-        delivery_address: address ? {
-          address_id: address.address_id,
-          name: address.name,
+        delivery_address: (address || (resolvedAggregatorName || aggregatorOrderId)) ? {
+          address_id: address?.address_id ?? order.address_id,
+          name: address?.name ?? 'Адрес из агрегатора',
           address: BusinessOrderController.formatDeliveryAddressWithAggregator(
-            
             resolvedAggregatorName,
             aggregatorOrderId,
-            address.address
+            address?.address ?? ''
           ),
-          coordinates: {
+          coordinates: address ? {
             lat: address.lat,
             lon: address.lon
-          },
-          details: {
+          } : null,
+          details: address ? {
             apartment: address.apartment,
             entrance: address.entrance,
             floor: address.floor,
             comment: address.other
+          } : {
+            apartment: '',
+            entrance: '',
+            floor: '',
+            comment: ''
           }
         } : null,
         delivery_type: order.delivery_type,
