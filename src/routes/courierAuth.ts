@@ -4,9 +4,6 @@ import { authenticateCourier } from '../middleware/courierAuth';
 
 const router = Router();
 
-// POST /api/courier/auth/register - Регистрация курьера
-router.post('/register', CourierAuthController.register);
-
 // POST /api/courier/auth/login - Логин курьера
 router.post('/login', CourierAuthController.login);
 

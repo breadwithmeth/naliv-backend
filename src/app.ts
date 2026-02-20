@@ -2,7 +2,8 @@ import express, { Application, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
-import { errorHandler } from './middleware/errorHandler';
+import crypto from 'crypto';
+import { createError, errorHandler } from './middleware/errorHandler';
 import apiRoutes from './routes/api';
 import { connectDatabase } from './database';
 import FirebaseAdminService from './services/firebaseAdmin';
@@ -69,7 +70,7 @@ class App {
       origin: '*', // Разрешаем все источники
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Developer-Key', 'X-API-Key'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Developer-Key', 'X-API-Key', 'X-Request-Id'],
       maxAge: 86400 // Access-Control-Max-Age: 86400 секунд (24 часа)
     }));
     
@@ -77,9 +78,11 @@ class App {
     this.app.use(express.json({ limit: '10mb' }));
     this.app.use(express.urlencoded({ extended: true }));
     
-    // Логирование запросов
+    // Корреляция запросов: X-Request-Id (без access-логов, чтобы не утекали токены/PII из query string)
     this.app.use((req: Request, res: Response, next: NextFunction) => {
-next();
+      const requestId = (req.headers['x-request-id'] as string | undefined)?.trim() || crypto.randomUUID();
+      res.setHeader('X-Request-Id', requestId);
+      next();
     });
   }
 
@@ -98,11 +101,8 @@ next();
     
     // 404 handler
     this.app.use('*', (req: Request, res: Response) => {
-      res.status(404).json({
-        error: 'Route not found',
-        method: req.method,
-        path: req.path
-      });
+      // единый формат через errorHandler
+      throw createError(404, 'Route not found');
     });
   }
 

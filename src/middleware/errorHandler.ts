@@ -13,22 +13,23 @@ export const errorHandler = (
 ): void => {
   let { statusCode = 500, message } = error;
 
+  const isProd = process.env.NODE_ENV === 'production';
+  const isServerError = statusCode >= 500;
+
   // Логирование ошибки
   console.error(`Error ${statusCode}: ${message}`);
   console.error(error.stack);
 
   // В production не показываем детали внутренних ошибок
-  if (statusCode === 500 && process.env.NODE_ENV === 'production') {
-    message = 'Internal Server Error';
-  }
+  const publicMessage = (isProd && isServerError) ? 'Internal Server Error' : message;
 
   res.status(statusCode).json({
+    success: false,
+    data: null,
     error: {
-      message,
+      message: publicMessage,
       statusCode,
-      timestamp: new Date().toISOString(),
-      path: req.path,
-      method: req.method
+      timestamp: new Date().toISOString()
     }
   });
 };

@@ -81,15 +81,20 @@ export class EmployeeController {
         }
 
         // Получаем order_id заказов, соответствующих фильтрам
-        const orderIdsRaw: any = await prisma.$queryRawUnsafe(`
+        const orderIdsRaw: any = await prisma.$queryRawUnsafe(
+          `
           SELECT DISTINCT o.order_id
           FROM orders o
           LEFT JOIN users u ON o.user_id = u.user_id
           LEFT JOIN user_addreses a ON o.address_id = a.address_id
           ${sqlWhere}
           ORDER BY o.order_id DESC
-          LIMIT ${limit} OFFSET ${offset}
-        `, ...sqlParams);
+          LIMIT ? OFFSET ?
+        `,
+          ...sqlParams,
+          limit,
+          offset
+        );
 
         const totalCountRaw: any = await prisma.$queryRawUnsafe(`
           SELECT COUNT(DISTINCT o.order_id) as total

@@ -1,16 +1,14 @@
 import { Router } from 'express';
 import { EmployeeAuthController } from '../controllers/employeeAuthController';
 import { authenticateEmployee } from '../middleware/employeeAuth';
+import { authLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 
 // ===== АУТЕНТИФИКАЦИЯ СОТРУДНИКОВ =====
 
-// POST /api/employee/auth/register - Регистрация сотрудника
-router.post('/register', EmployeeAuthController.register);
-
 // POST /api/employee/auth/login - Вход сотрудника
-router.post('/login', EmployeeAuthController.login);
+router.post('/login', authLimiter, EmployeeAuthController.login);
 
 // POST /api/employee/auth/logout - Выход сотрудника (требует авторизации)
 router.post('/logout', authenticateEmployee, EmployeeAuthController.logout);

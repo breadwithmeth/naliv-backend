@@ -21,6 +21,42 @@ interface HalykTokenResponse {
 
 export class BusinessOrderController {
 
+  private static isStrictIntegerString(value: string): boolean {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    if (!/^\d+$/.test(trimmed)) return false;
+    const asNumber = Number.parseInt(trimmed, 10);
+    return Number.isSafeInteger(asNumber) && String(asNumber) === trimmed;
+  }
+
+  private static formatDeliveryAddressWithAggregator(
+    aggregatorName: string | null,
+    aggregatorOrderId: string | null,
+    address: string
+    
+  ): string {
+    const cleanAddress = String(address ?? '').trim();
+    if (!cleanAddress) return cleanAddress;
+
+    const cleanAggregatorName = String(aggregatorName ?? '').trim();
+    const cleanAggregatorOrderId = String(aggregatorOrderId ?? '').trim();
+
+    if (!cleanAggregatorName && !cleanAggregatorOrderId) {
+      return cleanAddress;
+    }
+
+    const prefix = cleanAggregatorOrderId
+      ? `${cleanAggregatorName || 'Агрегатор'} №${cleanAggregatorOrderId}`
+      : cleanAggregatorName;
+
+    // Не дублируем префикс, если он уже в начале
+    if (prefix && cleanAddress.startsWith(prefix)) {
+      return cleanAddress;
+    }
+
+    return prefix ? `${prefix}, ${cleanAddress}` : cleanAddress;
+  }
+
   /**
    * Получение заказов бизнеса
    * GET /api/business/orders
@@ -94,6 +130,25 @@ export class BusinessOrderController {
       // Получаем ID заказов для дополнительных запросов
       const orderIds = orders.map(order => order.order_id);
 
+      // Подтягиваем справочник агрегаторов, чтобы отобразить имя агрегатора в адресе
+      const aggregatorRawValues = [
+        ...new Set(
+          orders
+            .map(o => o.aggregator)
+            .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+        )
+      ];
+
+      const aggregatorIds: number[] = [];
+      const aggregatorNames: string[] = [];
+      for (const raw of aggregatorRawValues) {
+        if (BusinessOrderController.isStrictIntegerString(raw)) {
+          aggregatorIds.push(Number.parseInt(raw.trim(), 10));
+        } else {
+          aggregatorNames.push(raw.trim());
+        }
+      }
+
       // Получаем дополнительные данные параллельно
       const [
         users,
@@ -101,7 +156,8 @@ export class BusinessOrderController {
         statuses,
         orderItems,
         orderCosts,
-        paymentTypes
+        paymentTypes,
+        aggregators
       ] = await Promise.all([
         // Пользователи
         prisma.user.findMany({
@@ -146,8 +202,28 @@ export class BusinessOrderController {
         // Типы оплаты
         prisma.payment_types.findMany({
           where: { payment_type_id: { in: orders.map(o => o.payment_type_id).filter(id => id !== null) as number[] } }
-        })
+        }),
+
+        // Агрегаторы (по aggregator_id или name)
+        (aggregatorIds.length || aggregatorNames.length)
+          ? prisma.aggregators.findMany({
+              where: {
+                OR: [
+                  ...(aggregatorIds.length ? [{ aggregator_id: { in: aggregatorIds } }] : []),
+                  ...(aggregatorNames.length ? [{ name: { in: aggregatorNames } }] : [])
+                ]
+              },
+              select: { aggregator_id: true, name: true }
+            })
+          : Promise.resolve([])
       ]);
+
+      const aggregatorsById = new Map<number, { aggregator_id: number; name: string }>(
+        (aggregators || []).map(a => [a.aggregator_id, a])
+      );
+      const aggregatorsByName = new Map<string, { aggregator_id: number; name: string }>(
+        (aggregators || []).map(a => [a.name, a])
+      );
 
       // Создаем мапы для быстрого доступа
       const usersMap = new Map(users.map(u => [u.user_id, u]));
@@ -187,6 +263,17 @@ export class BusinessOrderController {
         
         const totalItemsCount = items.reduce((sum, item) => sum + (item.amount || 0), 0);
         
+        const resolvedAggregatorName = (() => {
+          const raw = order.aggregator;
+          if (!raw) return null;
+          if (BusinessOrderController.isStrictIntegerString(raw)) {
+            return aggregatorsById.get(Number.parseInt(raw.trim(), 10))?.name ?? null;
+          }
+          return aggregatorsByName.get(raw.trim())?.name ?? raw.trim();
+        })();
+
+        const aggregatorOrderId = order.aggregator_order_id ? String(order.aggregator_order_id).trim() : null;
+
         return {
           order_id: order.order_id,
           order_uuid: order.order_uuid,
@@ -197,7 +284,12 @@ export class BusinessOrderController {
           delivery_address: address ? {
             address_id: address.address_id,
             name: address.name,
-            address: address.address,
+            address: BusinessOrderController.formatDeliveryAddressWithAggregator(
+              
+              resolvedAggregatorName,
+              aggregatorOrderId,
+              address.address
+            ),
             coordinates: {
               lat: address.lat,
               lon: address.lon
@@ -301,7 +393,8 @@ export class BusinessOrderController {
         statuses,
         orderItems,
         orderCost,
-        paymentType
+        paymentType,
+        aggregatorRecord
       ] = await Promise.all([
         // Пользователь
         prisma.user.findUnique({
@@ -347,7 +440,27 @@ export class BusinessOrderController {
         order.payment_type_id ? prisma.payment_types.findUnique({
           where: { payment_type_id: order.payment_type_id }
         }) : null
+
+        ,
+        // Агрегатор
+        order.aggregator
+          ? prisma.aggregators.findFirst({
+              where: BusinessOrderController.isStrictIntegerString(order.aggregator)
+                ? { aggregator_id: Number.parseInt(order.aggregator.trim(), 10) }
+                : { name: order.aggregator.trim() },
+              select: { aggregator_id: true, name: true }
+            })
+          : null
       ]);
+
+      const resolvedAggregatorName = (() => {
+        const raw = order.aggregator;
+        if (!raw) return null;
+        if (aggregatorRecord?.name) return aggregatorRecord.name;
+        return BusinessOrderController.isStrictIntegerString(raw) ? null : raw.trim();
+      })();
+
+      const aggregatorOrderId = order.aggregator_order_id ? String(order.aggregator_order_id).trim() : null;
 
       // Получаем пересчитанную стоимость заказа через OrderController
       const orderTotals = await OrderController.calculateOrderCostPublic(order_id);
@@ -474,7 +587,12 @@ export class BusinessOrderController {
         delivery_address: address ? {
           address_id: address.address_id,
           name: address.name,
-          address: address.address,
+          address: BusinessOrderController.formatDeliveryAddressWithAggregator(
+            
+            resolvedAggregatorName,
+            aggregatorOrderId,
+            address.address
+          ),
           coordinates: {
             lat: address.lat,
             lon: address.lon

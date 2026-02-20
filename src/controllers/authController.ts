@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import prisma from '../database';
 import { createError } from '../middleware/errorHandler';
 import { generateDiscountCardCode12 } from '../utils/discountCardCode';
@@ -601,7 +602,7 @@ if (!isCodeValid) {
       const tokenData = await prisma.users_tokens.create({
         data: {
           user_id: user.user_id,
-          token: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${user.user_id}` // Простая генерация токена
+          token: crypto.randomBytes(32).toString('hex')
         }
       });
 
@@ -670,7 +671,7 @@ if (!isCodeValid) {
       }
 
       // Ротируем session_token (обновляем запись)
-      const newSessionToken = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${user.user_id}`;
+      const newSessionToken = crypto.randomBytes(32).toString('hex');
       await prisma.users_tokens.update({
         where: { token_id: session.token_id },
         data: {

@@ -410,12 +410,6 @@ export class PaymentController {
       const baseUrl = `${req.protocol}://${req.get('host')}`;
       const addCardLink = `${baseUrl}/api/payments/add-card?token=${userToken}`;
 
-      console.log('Сгенерирована ссылка для добавления карты:', {
-        userId,
-        linkGenerated: new Date().toISOString(),
-        tokenExpires: '24h'
-      });
-
       res.json({
         success: true,
         data: {
@@ -441,7 +435,10 @@ export class PaymentController {
    * Проверка JWT токена
    */
   static verifyToken(token: string): any {
-    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET не установлен в переменных окружения');
+    }
     return jwt.verify(token, secret);
   }
 
@@ -449,7 +446,10 @@ export class PaymentController {
    * Генерация JWT токена для пользователя
    */
   static generateUserToken(userId: number): string {
-    const secret = process.env.JWT_SECRET || 'your-secret-key';
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('JWT_SECRET не установлен в переменных окружения');
+    }
     return jwt.sign({ user_id: userId }, secret, { expiresIn: '24h' });
   }
 
