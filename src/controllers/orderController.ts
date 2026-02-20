@@ -26,6 +26,50 @@ interface AuthRequest extends Request {
 
 export class OrderController {
 
+  private static parseNonNegativeInt(value: unknown): number | null {
+    if (value === undefined || value === null || value === '') {
+      return 0;
+    }
+
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
+
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    let normalized = value.trim();
+    if (!normalized) {
+      return 0;
+    }
+
+    // Оставляем только цифры/разделители, убираем валюту и прочие символы
+    normalized = normalized.replace(/[^\d.,-]/g, '');
+
+    // Если значение похоже на формат с тысячными разделителями, убираем их
+    // Примеры: "1,405" или "1.405"
+    if (/^-?\d{1,3}(,\d{3})+$/.test(normalized)) {
+      normalized = normalized.replace(/,/g, '');
+    } else if (/^-?\d{1,3}(\.\d{3})+$/.test(normalized)) {
+      normalized = normalized.replace(/\./g, '');
+    }
+
+    // Поддержка десятичной запятой (например: "1405,0")
+    if (normalized.includes(',') && !normalized.includes('.')) {
+      normalized = normalized.replace(/,/g, '.');
+    }
+
+    const parsed = Number(normalized);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+
+    // Иногда фронт отправляет бонусы со знаком минус (например, "-1405"),
+    // хотя по смыслу это "списать 1405". Приводим к модулю.
+    return Math.abs(parsed);
+  }
+
   /**
    * Валидация и парсинг даты с поддержкой времени
    * Поддерживаемые форматы:
@@ -600,9 +644,11 @@ export class OrderController {
         return next(createError(404, 'Бизнес не найден'));
       }
 
+      const bonusAmount = OrderController.parseNonNegativeInt(bonus_amount);
+
       // Валидация бонусов
-      if (bonus_amount !== 0) {
-        if (typeof bonus_amount !== 'number' || !Number.isInteger(bonus_amount) || bonus_amount < 0) {
+      if (bonusAmount !== 0) {
+        if (bonusAmount === null || !Number.isInteger(bonusAmount) || bonusAmount < 0) {
           return next(createError(400, 'bonus_amount должен быть неотрицательным целым числом'));
         }
 
@@ -614,8 +660,8 @@ export class OrderController {
 
         const userBonusBalance = lastBonusRecord ? lastBonusRecord.amount : 0;
 
-        if (bonus_amount > userBonusBalance) {
-          return next(createError(400, `Недостаточно бонусов: доступно ${userBonusBalance}, запрошено ${bonus_amount}`));
+        if (bonusAmount > userBonusBalance) {
+          return next(createError(400, `Недостаточно бонусов: доступно ${userBonusBalance}, запрошено ${bonusAmount}`));
         }
       }
 
@@ -684,7 +730,7 @@ export class OrderController {
           order_uuid,
           address_id: address_id || 1, // Обязательное поле, ставим дефолтное значение если нет адреса
           delivery_price: deliveryPrice, // Добавляем стоимость доставки
-          bonus: bonus_amount,
+          bonus: bonusAmount,
           extra,
           delivery_type: delivery_type as orders_delivery_type,
           delivery_date: delivery_date ? new Date(delivery_date) : null,
@@ -2107,6 +2153,27 @@ if (!response.ok) {
         return next(createError(404, 'Бизнес не найден'));
       }
 
+      const bonusAmount = OrderController.parseNonNegativeInt(bonus_amount);
+
+      // Валидация бонусов
+      if (bonusAmount !== 0) {
+        if (bonusAmount === null || !Number.isInteger(bonusAmount) || bonusAmount < 0) {
+          return next(createError(400, 'bonus_amount должен быть неотрицательным целым числом'));
+        }
+
+        // Проверяем фактический баланс пользователя
+        const lastBonusRecord = await prisma.bonuses.findFirst({
+          where: { user_id },
+          orderBy: { bonus_id: 'desc' }
+        });
+
+        const userBonusBalance = lastBonusRecord ? lastBonusRecord.amount : 0;
+
+        if (bonusAmount > userBonusBalance) {
+          return next(createError(400, `Недостаточно бонусов: доступно ${userBonusBalance}, запрошено ${bonusAmount}`));
+        }
+      }
+
       const order_uuid = OrderController.generateNumericOrderUuid(user_id);
 
       // Рассчитываем стоимость доставки ДО транзакции
@@ -2144,7 +2211,7 @@ if (!response.ok) {
           order_uuid,
           address_id: address_id || 1, // Используем переданный address_id
           delivery_price: deliveryPrice,
-          bonus: bonus_amount,
+          bonus: bonusAmount,
           extra,
           delivery_type: delivery_type as orders_delivery_type,
           delivery_date: delivery_date ? new Date(delivery_date) : null,
