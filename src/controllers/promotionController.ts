@@ -21,8 +21,7 @@ export class PromotionController {
       if (business_id) {
         whereConditions.business_id = parseInt(business_id as string);
       }
-      console.log('🔍 Поиск активных акций:', whereConditions);
-      const promotions = await prisma.marketing_promotions.findMany({
+const promotions = await prisma.marketing_promotions.findMany({
         where: whereConditions,
         orderBy: [
           { start_promotion_date: 'desc' },
@@ -31,9 +30,7 @@ export class PromotionController {
         take: parseInt(limit as string),
         skip: parseInt(offset as string)
       });
-      console.log(`✅ Найдено ${promotions.length} акций`);
-
-      // Для обычных клиентов показываем public_name как name
+// Для обычных клиентов показываем public_name как name
       const publicPromotions = promotions.map((p: any) => {
         const { public_name, ...rest } = p;
         return {

@@ -236,10 +236,7 @@
                         date: document.getElementById('scheduled-date').value
                     }
                 };
-
-                console.log('Отправляем данные:', requestData);
-
-                const response = await fetch('/api/orders/create-user-order', {
+const response = await fetch('/api/orders/create-user-order', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

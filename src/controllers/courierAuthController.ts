@@ -122,8 +122,7 @@ export class CourierAuthController {
                 where: { courier_id: courier.courier_id },
                 data: { password: upgradedHash }
               });
-              console.log(`Пароль курьера id=${courier.courier_id} автоматически захэширован (migration-on-login).`);
-            } catch (e) {
+} catch (e) {
               console.error('Не удалось обновить пароль до хэша:', e);
             }
         }

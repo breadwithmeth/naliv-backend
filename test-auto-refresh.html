@@ -236,8 +236,7 @@
             };
 
             setupCallbacks();
-            console.log('Тестируем истёкшие данные:', oldPaymentObject);
-            halyk.cardverification(oldPaymentObject);
+halyk.cardverification(oldPaymentObject);
         }
 
         function startPayment() {
@@ -248,24 +247,19 @@
 
             updateStatus('🚀 Запуск с новыми данными...', 'info');
             setupCallbacks();
-            
-            console.log('Запускаем с новыми данными:', freshData);
-            updateTokenInfo(document.getElementById('tokenDetails').innerHTML + '<br><br><strong>🚀 Статус:</strong> Запущен платёж...');
+updateTokenInfo(document.getElementById('tokenDetails').innerHTML + '<br><br><strong>🚀 Статус:</strong> Запущен платёж...');
             
             halyk.cardverification(freshData);
         }
 
         function setupCallbacks() {
             window.halyk_success = function(data) {
-                console.log('✅ Успех:', data);
-                updateStatus('🎉 Платёж успешно завершён!', 'success');
+updateStatus('🎉 Платёж успешно завершён!', 'success');
                 updateTokenInfo(document.getElementById('tokenDetails').innerHTML + '<br><br><strong>✅ Результат:</strong> Успех!');
             };
 
             window.halyk_failure = function(error) {
-                console.log('❌ Ошибка:', error);
-                
-                if (error.message && error.message.includes('истекло')) {
+if (error.message && error.message.includes('истекло')) {
                     updateStatus('⏰ Обнаружен timeout - автоматическое обновление!', 'warning');
                     setTimeout(() => {
                         getLatestData();
@@ -278,8 +272,7 @@
             };
 
             window.halyk_cancelled = function() {
-                console.log('❌ Отменено пользователем');
-                updateStatus('❌ Операция отменена пользователем', 'warning');
+updateStatus('❌ Операция отменена пользователем', 'warning');
             };
         }
 

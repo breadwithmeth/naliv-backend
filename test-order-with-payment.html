@@ -97,8 +97,7 @@
             const timestamp = new Date().toLocaleTimeString();
             const className = type === 'error' ? 'error' : type === 'success' ? 'success' : 'info';
             output.innerHTML += `<p class="${className}">[${timestamp}] ${message}</p>`;
-            console.log(message);
-        }
+}
 
         document.getElementById('orderForm').addEventListener('submit', async function(e) {
             e.preventDefault();

@@ -123,11 +123,8 @@ export class OrderController {
         item.amount = amount;
       }
 
-      console.log('Начинаем создание заказа для пользователя:', user_id);
-      console.log('Получены товары:', JSON.stringify(items, null, 2));
-      console.log('Тип доставки:', actualDeliveryType);
 
-      // Валидация для запланированной доставки
+// Валидация для запланированной доставки
       let deliveryDate = null;
       if (actualDeliveryType === 'SCHEDULED') {
         if (!delivery_date) {
@@ -149,8 +146,7 @@ export class OrderController {
         }
         
         deliveryDate = scheduledDate;
-        console.log('Запланированная доставка на:', scheduledDate.toISOString());
-      }
+}
 
       // Получаем адрес для доставки - ДО транзакции
       let selectedAddress = null;
@@ -224,10 +220,8 @@ export class OrderController {
             deliveryPrice = Number(deliveryResult.price);
             
             if (actualDeliveryType === 'SCHEDULED') {
-              console.log('Рассчитана стоимость запланированной доставки:', deliveryPrice);
-            } else {
-              console.log('Рассчитана стоимость обычной доставки:', deliveryPrice);
-            }
+} else {
+}
           } else {
             const deliveryTypeText = actualDeliveryType === 'SCHEDULED' ? 'Запланированная доставка' : 'Доставка';
             return next(createError(400, `${deliveryTypeText} недоступна: ${deliveryResult.message}`));
@@ -289,10 +283,7 @@ export class OrderController {
             extra: extra || ''
           }
         });
-
-        console.log('Заказ создан с ID:', order.order_id);
-
-        // Генерируем order_uuid как в PHP: time() + order_id
+// Генерируем order_uuid как в PHP: time() + order_id
         const order_uuid = `${Math.floor(Date.now() / 1000)}${order.order_id}`;
         
         // Обновляем UUID заказа и создаем статус (как в PHP)
@@ -309,14 +300,9 @@ export class OrderController {
             log_timestamp: new Date()
           }
         });
-
-        console.log('Обновлен UUID заказа:', order_uuid);
-
-        // Добавляем товары и опции - используем уже проверенные данные
+// Добавляем товары и опции - используем уже проверенные данные
         for (const validatedItem of stockValidation) {
-          console.log('Обрабатываем проверенный товар с ID:', validatedItem.item_id);
-          
-          // Проверяем активные акции для данного товара
+// Проверяем активные акции для данного товара
           let appliedPromotionDetailId = null;
           
           // Поиск акций для конкретного товара (аналог SQL запроса)
@@ -344,8 +330,7 @@ export class OrderController {
           // Берем первую (лучшую) акцию если она есть
           if (Array.isArray(promotionDetailsRaw) && promotionDetailsRaw.length > 0) {
             appliedPromotionDetailId = (promotionDetailsRaw[0] as any).detail_id;
-            console.log('Применена акция detail_id:', appliedPromotionDetailId, 'для товара:', validatedItem.item_id);
-          }
+}
 
           // Добавляем основной товар в заказ
           const orderItem = await tx.orders_items.create({
@@ -358,10 +343,7 @@ export class OrderController {
               marketing_promotion_detail_id: appliedPromotionDetailId // ID примененной акции
             }
           });
-
-          console.log('Добавлен товар в заказ:', orderItem.relation_id);
-
-          // Добавляем опции если есть (аналог PHP логики)
+// Добавляем опции если есть (аналог PHP логики)
           if (validatedItem.options && validatedItem.options.length > 0) {
             for (const option of validatedItem.options) {
               if (option.option_item_relation_id) {
@@ -384,9 +366,7 @@ export class OrderController {
                       amount: optionAmount
                     }
                   });
-
-                  console.log('Добавлена опция:', option.option_item_relation_id);
-                }
+}
               }
             }
           }
@@ -409,14 +389,9 @@ export class OrderController {
               where: { order_id: order.order_id },
               data: { bonus: usedBonus }
             });
-
-            console.log('Применены бонусы:', usedBonus);
-          }
+}
         }
-
-        console.log('ID карты Halyk:', halyk_id);
-
-        // Возвращаем успешный результат
+// Возвращаем успешный результат
         return {
           success: true,
           order_id: order.order_id,
@@ -429,9 +404,8 @@ export class OrderController {
 
       // Обрабатываем платеж после завершения транзакции
       if (halyk_id) {
-        console.log('⚠️  ВНИМАНИЕ: halyk_id передан, но оплата не будет выполнена');
-        console.log('Используйте отдельный endpoint POST /api/orders/:id/pay для оплаты заказа');
-      }
+
+}
 
       // Отправляем уведомление о создании заказа
       try {
@@ -446,8 +420,7 @@ export class OrderController {
         //   status: 'created',
         //   business_name: businessInfo?.name || 'Неизвестное заведение'
         // });
-        console.log(`Уведомление о создании заказа ${orderResult.order_id} отправлено пользователю ${user_id}`);
-      } catch (notificationError) {
+} catch (notificationError) {
         console.error('Ошибка отправки уведомления о создании заказа:', notificationError);
         // Не прерываем выполнение, если уведомление не удалось отправить
       }
@@ -616,20 +589,34 @@ export class OrderController {
         if (scheduledDate > maxFutureDate) {
           return next(createError(400, 'Дата запланированной доставки не может быть более чем на 30 дней вперед'));
         }
-        
-        console.log('Запланированная доставка на:', scheduledDate.toISOString());
-      }
+}
 
-      console.log('Начинаем создание заказа без оплаты для пользователя:', user_id);
-      console.log('Получены товары:', JSON.stringify(items, null, 2));
-
-      // Проверяем существование бизнеса
+// Проверяем существование бизнеса
       const business = await prisma.businesses.findUnique({
         where: { business_id }
       });
 
       if (!business) {
         return next(createError(404, 'Бизнес не найден'));
+      }
+
+      // Валидация бонусов
+      if (bonus_amount !== 0) {
+        if (typeof bonus_amount !== 'number' || !Number.isInteger(bonus_amount) || bonus_amount < 0) {
+          return next(createError(400, 'bonus_amount должен быть неотрицательным целым числом'));
+        }
+
+        // Проверяем фактический баланс пользователя
+        const lastBonusRecord = await prisma.bonuses.findFirst({
+          where: { user_id },
+          orderBy: { bonus_id: 'desc' }
+        });
+
+        const userBonusBalance = lastBonusRecord ? lastBonusRecord.amount : 0;
+
+        if (bonus_amount > userBonusBalance) {
+          return next(createError(400, `Недостаточно бонусов: доступно ${userBonusBalance}, запрошено ${bonus_amount}`));
+        }
       }
 
       const order_uuid = OrderController.generateNumericOrderUuid(user_id);
@@ -651,10 +638,8 @@ export class OrderController {
             if (delivery_type === 'SCHEDULED') {
               // Можно добавить дополнительную логику для SCHEDULED доставки
               // например, увеличить стоимость или применить другие правила
-              console.log('Рассчитана стоимость запланированной доставки:', deliveryPrice);
-            } else {
-              console.log('Рассчитана стоимость обычной доставки:', deliveryPrice);
-            }
+} else {
+}
           } else {
             const deliveryTypeText = delivery_type === 'SCHEDULED' ? 'Запланированная доставка' : 'Доставка';
             return next(createError(400, `${deliveryTypeText} недоступна: ${deliveryResult.message}`));
@@ -690,8 +675,7 @@ export class OrderController {
 
           address_id = newAddress.address_id;
           const addressType = delivery_type === 'SCHEDULED' ? 'запланированной доставки' : 'доставки';
-          console.log(`Создан новый адрес ${addressType} с ID:`, address_id);
-        }
+}
 
         // Создаем заказ
         const orderData: any = {
@@ -710,10 +694,7 @@ export class OrderController {
         const order = await tx.orders.create({
           data: orderData
         });
-
-        console.log('Создан заказ с ID:', order.order_id);
-
-        // Создаем статус заказа (новый заказ без оплаты)
+// Создаем статус заказа (новый заказ без оплаты)
         await tx.order_status.create({
           data: {
             order_id: order.order_id,
@@ -722,19 +703,13 @@ export class OrderController {
             log_timestamp: new Date()
           }
         });
-
-        console.log('Создан статус заказа для order_id:', order.order_id);
-
-        // Добавляем товары в заказ
+// Добавляем товары в заказ
         for (const item of items) {
           // Дополнительная проверка на всякий случай
           if (!item.item_id || typeof item.item_id !== 'number') {
             throw new Error(`Некорректный item_id: ${item.item_id}`);
           }
-          
-          console.log('Обрабатываем товар с ID:', item.item_id);
-          
-          // Получаем данные товара для определения цены
+// Получаем данные товара для определения цены
           const itemData = await tx.items.findUnique({
             where: { item_id: item.item_id }
           });
@@ -772,8 +747,7 @@ export class OrderController {
           // Берем первую (лучшую) акцию если она есть
           if (Array.isArray(promotionDetailsRaw) && promotionDetailsRaw.length > 0) {
             appliedPromotionDetailId = (promotionDetailsRaw[0] as any).detail_id;
-            console.log('Применена акция detail_id:', appliedPromotionDetailId, 'для товара:', item.item_id);
-          }
+}
 
           const orderItem = await tx.orders_items.create({
             data: {
@@ -784,10 +758,7 @@ export class OrderController {
               marketing_promotion_detail_id: appliedPromotionDetailId // ID примененной акции
             }
           });
-
-          console.log('Добавлен товар:', orderItem);
-
-          // Добавляем опции товара
+// Добавляем опции товара
           if (item.options && item.options.length > 0) {
             for (const option of item.options) {
               // Получаем данные опции для определения цены
@@ -814,11 +785,8 @@ export class OrderController {
 
         // Рассчитываем итоговую стоимость заказа
         const totals = await OrderController.calculateOrderTotalInTransaction(tx, order.order_id);
-        
-        console.log('Заказ создан без оплаты. Итоговая сумма:', totals.total_sum);
-        console.log('Сумма до доставки:', totals.sum_before_delivery, 'Стоимость доставки:', deliveryPrice);
 
-        return {
+return {
           success: true,
           order_id: order.order_id,
           order_uuid: order_uuid,
@@ -833,8 +801,7 @@ export class OrderController {
 
       // Отправляем уведомление о создании заказа
       try {
-        console.log('Уведомление о заказе отправлено');
-      } catch (notificationError) {
+} catch (notificationError) {
         console.error('Ошибка отправки уведомления:', notificationError);
       }
 
@@ -909,16 +876,14 @@ export class OrderController {
                 }
                 
                 itemCost = itemPrice * chargedAmount;
-                console.log(`Применена акция SUBTRACT для товара ${item.item_id}: было ${itemAmount}, к оплате ${chargedAmount}`);
-              }
+}
             } else if (promotionDetail.type === 'PERCENT' || promotionDetail.type === 'DISCOUNT') {
               // Акция типа PERCENT (legacy DISCOUNT): скидка в процентах
               const discountPercent = Number(promotionDetail.discount || 0);
               if (discountPercent > 0) {
                 const discountAmount = (itemCost * discountPercent) / 100;
                 itemCost = itemCost - discountAmount;
-                console.log(`Применена акция PERCENT для товара ${item.item_id}: скидка ${discountPercent}%, сумма со скидкой ${itemCost}`);
-              }
+}
             }
           }
         } catch (promotionError) {
@@ -1011,16 +976,14 @@ export class OrderController {
                 }
                 
                 itemCost = itemPrice * chargedAmount;
-                console.log(`Применена акция SUBTRACT для товара ${item.item_id}: было ${itemAmount}, к оплате ${chargedAmount}`);
-              }
+}
             } else if (promotionDetail.type === 'PERCENT' || promotionDetail.type === 'DISCOUNT') {
               // Акция типа PERCENT (legacy DISCOUNT): скидка в процентах
               const discountPercent = Number(promotionDetail.discount || 0);
               if (discountPercent > 0) {
                 const discountAmount = (itemCost * discountPercent) / 100;
                 itemCost = itemCost - discountAmount;
-                console.log(`Применена акция PERCENT для товара ${item.item_id}: скидка ${discountPercent}%, сумма со скидкой ${itemCost}`);
-              }
+}
             }
           }
         } catch (promotionError) {
@@ -1220,25 +1183,17 @@ export class OrderController {
           return;
         }
       }
-
-      console.log('Начинаем оплату заказа:', orderId, 'типом:', payment_type);
-
-      try {
+try {
         let paymentResult;
 
         if (payment_type === 'card') {
           // Оплата сохраненной картой
-          console.log('Оплата сохраненной картой с Halyk ID:', card_id);
-          paymentResult = await OrderController.processCardPayment(orderId, user_id, card_id);
+paymentResult = await OrderController.processCardPayment(orderId, user_id, card_id);
         } else {
           // Создание ссылки для оплаты на странице
-          console.log('Создание ссылки для оплаты на странице');
-          paymentResult = await OrderController.createPaymentPage(orderId, user_id);
+paymentResult = await OrderController.createPaymentPage(orderId, user_id);
         }
-
-        console.log('Результат платежа:', paymentResult);
-
-        // Проверяем успешность платежа для корректного HTTP статуса
+// Проверяем успешность платежа для корректного HTTP статуса
         if (paymentResult.status === 'payment_declined') {
           res.status(400).json({
             success: false,
@@ -1373,10 +1328,7 @@ export class OrderController {
       // Получаем стоимость заказа
       const orderTotal = await OrderController.calculateOrderTotal(orderId);
       const amount = Math.round(orderTotal.total_sum * 100); // В тийинах
-
-      console.log('Создание страницы оплаты для суммы:', amount, 'тийин (', orderTotal.total_sum, 'тенге)');
-
-      // Проверяем минимальную сумму
+// Проверяем минимальную сумму
       if (amount < 100) { // минимум 1 тенге
         throw new Error('Сумма заказа слишком мала для оплаты');
       }
@@ -1387,10 +1339,7 @@ export class OrderController {
       if (!token || !token.access_token) {
         throw new Error('Не удалось получить токен');
       }
-
-      console.log('Получен токен для создания страницы оплаты:', token.access_token.substring(0, 20) + '...');
-
-      // Формируем данные для создания платежной страницы
+// Формируем данные для создания платежной страницы
       const paymentPageData = {
         amount: amount,
         currency: 'KZT',
@@ -1406,13 +1355,10 @@ export class OrderController {
         paymentType: 'normal' // Обычная оплата на странице
       };
 
-      console.log('Создаем платежную страницу с данными:');
-      console.log('- Сумма:', amount, 'тийин');
-      console.log('- Валюта:', paymentPageData.currency);
-      console.log('- Invoice ID:', paymentPageData.invoiceId);
-      console.log('- Тип оплаты:', paymentPageData.paymentType);
 
-      // Отправляем запрос на создание платежной страницы
+
+
+// Отправляем запрос на создание платежной страницы
       const response = await fetch('https://epay-api.homebank.kz/payments/cards/auth', {
         method: 'POST',
         headers: {
@@ -1423,11 +1369,9 @@ export class OrderController {
       });
 
       const responseText = await response.text();
-      console.log('Ответ банка при создании страницы (статус):', response.status);
-      console.log('Ответ банка при создании страницы (заголовки):', Object.fromEntries(response.headers.entries()));
-      console.log('Ответ банка при создании страницы (тело):', responseText);
 
-      if (response.status === 200) {
+
+if (response.status === 200) {
         let halykResponse;
         try {
           halykResponse = JSON.parse(responseText);
@@ -1435,10 +1379,7 @@ export class OrderController {
           console.error('Ошибка парсинга ответа банка:', parseError);
           throw new Error('Неверный формат ответа от банка');
         }
-
-        console.log('Платежная страница создана:', halykResponse);
-
-        // Если есть URL для перенаправления, возвращаем его
+// Если есть URL для перенаправления, возвращаем его
         if (halykResponse.redirectUrl || halykResponse.paymentUrl || halykResponse.url) {
           const paymentUrl = halykResponse.redirectUrl || halykResponse.paymentUrl || halykResponse.url;
           
@@ -1448,8 +1389,7 @@ export class OrderController {
               where: { order_id: orderId },
               data: { payment_id: halykResponse.id }
             });
-            console.log('Сохранен payment_id для страницы оплаты:', halykResponse.id);
-          }
+}
 
           return {
             status: 'redirect',
@@ -1478,11 +1418,9 @@ export class OrderController {
             bankErrorMessage = errorData.message;
             halykErrorInfo = OrderController.getHalykErrorInfo(bankErrorCode);
             console.error('Код ошибки банка (страница):', bankErrorCode, 'Сообщение:', bankErrorMessage);
-            console.log('Обработанная ошибка:', halykErrorInfo);
-          }
+}
         } catch (parseError) {
-          console.log('Не удалось парсить ответ банка как JSON');
-        }
+}
 
         // Определяем тип ошибки на основе кода банка
         let errorType = 'unknown';
@@ -1543,15 +1481,10 @@ export class OrderController {
       }
 
       // Используем переданный Halyk card ID напрямую
-      console.log('Используем Halyk card ID:', halykCardId);
-
-      // Получаем стоимость заказа
+// Получаем стоимость заказа
       const orderTotal = await OrderController.calculateOrderTotal(orderId);
       const amount = Math.round(orderTotal.total_sum ); // В тийинах
-
-      console.log('Сумма к оплате:', amount, 'тийин (', orderTotal.total_sum, 'тенге)');
-
-      // Проверяем минимальную сумму
+// Проверяем минимальную сумму
       if (amount < 100) { // минимум 1 тенге
         throw new Error('Сумма заказа слишком мала для оплаты');
       }
@@ -1562,10 +1495,7 @@ export class OrderController {
       if (!token || !token.access_token) {
         throw new Error('Не удалось получить токен');
       }
-
-      console.log('Получен токен:', token.access_token.substring(0, 20) + '...');
-
-      // Формируем данные для платежа (точно как в документации)
+// Формируем данные для платежа (точно как в документации)
       const paymentData = {
         amount: amount,
         currency: 'KZT',
@@ -1587,14 +1517,11 @@ export class OrderController {
         }
       };
 
-      console.log('Отправляем данные платежа в Halyk Bank:');
-      console.log('- Сумма:', amount, 'тийин');
-      console.log('- Валюта:', paymentData.currency);
-      console.log('- Invoice ID:', paymentData.invoiceId);
-      console.log('- Card ID:', halykCardId);
-      console.log('- Payment Type:', paymentData.paymentType);
 
-      // Отправляем запрос на оплату
+
+
+
+// Отправляем запрос на оплату
       const response = await fetch('https://epay-api.homebank.kz/payments/cards/auth', {
         method: 'POST',
         headers: {
@@ -1605,11 +1532,9 @@ export class OrderController {
       });
 
       const responseText = await response.text();
-      console.log('Ответ банка (статус):', response.status);
-      console.log('Ответ банка (заголовки):', Object.fromEntries(response.headers.entries()));
-      console.log('Ответ банка (тело):', responseText);
 
-      if (response.status === 200) {
+
+if (response.status === 200) {
         let halykResponse;
         try {
           halykResponse = JSON.parse(responseText);
@@ -1617,10 +1542,7 @@ export class OrderController {
           console.error('Ошибка парсинга ответа банка:', parseError);
           throw new Error('Неверный формат ответа от банка');
         }
-        
-        console.log('Платеж успешно обработан:', halykResponse);
-        
-        // Проверяем статус платежа
+// Проверяем статус платежа
         if (halykResponse.code === 0 && halykResponse.status === 'AUTH') {
           // Обновляем статус заказа на "оплачен"
           await prisma.order_status.create({
@@ -1639,10 +1561,7 @@ export class OrderController {
               payment_id: halykResponse.id || halykResponse.reference || null
             }
           });
-
-          console.log('Статус заказа обновлен на "оплачен"');
-
-          return {
+return {
             status: 'ok',
             message: 'Оплата прошла успешно',
             payment_id: halykResponse.id,
@@ -1701,9 +1620,7 @@ export class OrderController {
 
         try {
           const errorResponse = JSON.parse(responseText);
-          console.log('Ошибка банка (парсинг):', errorResponse);
-
-          bankErrorCode = errorResponse.code || response.status;
+bankErrorCode = errorResponse.code || response.status;
           bankErrorMessage = errorResponse.message || `HTTP ${response.status}`;
           errorInfo = bankErrorMessage;
         } catch (parseError) {
@@ -1888,10 +1805,7 @@ export class OrderController {
         postLink: 'https://chorenn.naliv.kz/api/payment.php',
         failurePostLink: 'https://chorenn.naliv.kz/api/payment.php'
       });
-
-      console.log('Запрос токена с данными:', data.toString());
-
-      const response = await fetch('https://epay-oauth.homebank.kz/oauth2/token', {
+const response = await fetch('https://epay-oauth.homebank.kz/oauth2/token', {
         method: 'POST',
         headers: {
           'AUTH': '050052bf-1761-11ee-8376-088fc3787894',
@@ -1901,9 +1815,7 @@ export class OrderController {
       });
 
       const responseText = await response.text();
-      console.log('Ответ токена:', responseText);
-
-      if (!response.ok) {
+if (!response.ok) {
         throw new Error(`Ошибка получения токена: ${response.status} ${responseText}`);
       }
 
@@ -2184,14 +2096,9 @@ export class OrderController {
         if (scheduledDate > maxFutureDate) {
           return next(createError(400, 'Дата запланированной доставки не может быть более чем на 30 дней вперед'));
         }
-        
-        console.log('Запланированная доставка на:', scheduledDate.toISOString());
-      }
+}
 
-      console.log('Начинаем создание заказа без оплаты (с address_id) для пользователя:', user_id);
-      console.log('Получены товары:', JSON.stringify(items, null, 2));
-
-      // Проверяем существование бизнеса
+// Проверяем существование бизнеса
       const business = await prisma.businesses.findUnique({
         where: { business_id }
       });
@@ -2216,10 +2123,8 @@ export class OrderController {
             deliveryPrice = Number(deliveryResult.price);
             
             if (delivery_type === 'SCHEDULED') {
-              console.log('Рассчитана стоимость запланированной доставки:', deliveryPrice);
-            } else {
-              console.log('Рассчитана стоимость обычной доставки:', deliveryPrice);
-            }
+} else {
+}
           } else {
             const deliveryTypeText = delivery_type === 'SCHEDULED' ? 'Запланированная доставка' : 'Доставка';
             return next(createError(400, `${deliveryTypeText} недоступна: ${deliveryResult.message}`));
@@ -2249,10 +2154,7 @@ export class OrderController {
         const order = await tx.orders.create({
           data: orderData
         });
-
-        console.log('Создан заказ с ID:', order.order_id);
-
-        // Создаем статус заказа (новый заказ без оплаты)
+// Создаем статус заказа (новый заказ без оплаты)
         await tx.order_status.create({
           data: {
             order_id: order.order_id,
@@ -2261,18 +2163,12 @@ export class OrderController {
             log_timestamp: new Date()
           }
         });
-
-        console.log('Создан статус заказа для order_id:', order.order_id);
-
-        // Добавляем товары в заказ
+// Добавляем товары в заказ
         for (const item of items) {
           if (!item.item_id || typeof item.item_id !== 'number') {
             throw new Error(`Некорректный item_id: ${item.item_id}`);
           }
-          
-          console.log('Обрабатываем товар с ID:', item.item_id);
-          
-          const itemData = await tx.items.findUnique({
+const itemData = await tx.items.findUnique({
             where: { item_id: item.item_id }
           });
 
@@ -2307,8 +2203,7 @@ export class OrderController {
 
           if (Array.isArray(promotionDetailsRaw) && promotionDetailsRaw.length > 0) {
             appliedPromotionDetailId = (promotionDetailsRaw[0] as any).detail_id;
-            console.log('Применена акция detail_id:', appliedPromotionDetailId, 'для товара:', item.item_id);
-          }
+}
 
           const orderItem = await tx.orders_items.create({
             data: {
@@ -2319,10 +2214,7 @@ export class OrderController {
               marketing_promotion_detail_id: appliedPromotionDetailId
             }
           });
-
-          console.log('Добавлен товар:', orderItem);
-
-          // Добавляем опции товара
+// Добавляем опции товара
           if (item.options && item.options.length > 0) {
             for (const option of item.options) {
               const optionData = await tx.option_items.findUnique({
@@ -2347,11 +2239,8 @@ export class OrderController {
 
         // Рассчитываем итоговую стоимость заказа
         const totals = await OrderController.calculateOrderTotalInTransaction(tx, order.order_id);
-        
-        console.log('Заказ создан без оплаты. Итоговая сумма:', totals.total_sum);
-        console.log('Сумма до доставки:', totals.sum_before_delivery, 'Стоимость доставки:', deliveryPrice);
 
-        return {
+return {
           success: true,
           order_id: order.order_id,
           order_uuid: order_uuid,
@@ -2366,8 +2255,7 @@ export class OrderController {
 
       // Отправляем уведомление о создании заказа
       try {
-        console.log('Уведомление о заказе отправлено');
-      } catch (notificationError) {
+} catch (notificationError) {
         console.error('Ошибка отправки уведомления:', notificationError);
       }
 
@@ -3408,10 +3296,7 @@ export class OrderController {
       if (delivery_type && ['DELIVERY', 'PICKUP', 'SCHEDULED'].includes(delivery_type as string)) {
         whereCondition.delivery_type = delivery_type as orders_delivery_type;
       }
-
-      console.log('Получение активных заказов пользователя:', user_id);
-
-      // Получаем все заказы пользователя
+// Получаем все заказы пользователя
       const orders = await prisma.orders.findMany({
         where: whereCondition,
         orderBy: { log_timestamp: 'desc' }
@@ -3546,10 +3431,7 @@ export class OrderController {
         // Если приоритеты одинаковы, сортируем по времени создания (новые сначала)
         return new Date(b.log_timestamp).getTime() - new Date(a.log_timestamp).getTime();
       });
-
-      console.log(`Найдено ${activeOrders.length} активных заказов для пользователя ${user_id}`);
-
-      res.json({
+res.json({
         success: true,
         data: {
           active_orders: activeOrders,
@@ -3619,10 +3501,7 @@ export class OrderController {
       if (delivery_type && ['DELIVERY', 'PICKUP', 'SCHEDULED'].includes(delivery_type as string)) {
         whereConditions.delivery_type = delivery_type as orders_delivery_type;
       }
-
-      console.log('Получение заказов пользователя:', user_id, 'с фильтрами:', whereConditions);
-
-      const [orders, total] = await Promise.all([
+const [orders, total] = await Promise.all([
         prisma.orders.findMany({
           where: whereConditions,
           orderBy: { log_timestamp: 'desc' },
@@ -3862,8 +3741,7 @@ export class OrderController {
         //   status: status,
         //   business_name: business?.name || 'Неизвестное заведение'
         // });
-        console.log(`Уведомление о смене статуса заказа ${orderId} отправлено пользователю ${order.user_id}`);
-      } catch (notificationError) {
+} catch (notificationError) {
         console.error('Ошибка отправки уведомления:', notificationError);
         // Не прерываем выполнение, если уведомление не удалось отправить
       }

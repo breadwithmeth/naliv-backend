@@ -30,13 +30,11 @@ startServer();
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
-  await disconnectDatabase();
+await disconnectDatabase();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  console.log('SIGINT received. Shutting down gracefully...');
-  await disconnectDatabase();
+await disconnectDatabase();
   process.exit(0);
 });

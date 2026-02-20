@@ -24,14 +24,7 @@ export class UserCardsController {
 
       const userId = req.user.user_id;
       const { source = 'combined' } = req.query; // 'local', 'halyk', 'combined'
-
-      console.log('Получение сохраненных карт:', {
-        userId,
-        source,
-        timestamp: new Date().toISOString()
-      });
-
-      if (source === 'halyk') {
+if (source === 'halyk') {
         // Получаем карты только из Halyk Bank API
         try {
           const { PaymentController } = require('./paymentController');

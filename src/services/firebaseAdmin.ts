@@ -50,8 +50,7 @@ class FirebaseAdminService {
       }
 
       this.isInitialized = true;
-      console.log('✅ Firebase Admin SDK успешно инициализирован');
-    } catch (error: any) {
+} catch (error: any) {
       console.error('❌ Ошибка инициализации Firebase Admin SDK:', error.message);
       throw error;
     }
@@ -248,9 +247,7 @@ class FirebaseAdminService {
 
     // Здесь можно добавить логику для проверки всех токенов в базе
     // и удаления недействительных
-    console.log('Cleanup invalid tokens - функция для будущей реализации');
-    
-    return { removed: 0, checked: 0 };
+return { removed: 0, checked: 0 };
   }
 
   /**

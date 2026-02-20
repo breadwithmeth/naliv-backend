@@ -17,8 +17,7 @@ export default prisma;
 export async function connectDatabase(): Promise<void> {
   try {
     await prisma.$connect();
-    console.log('✅ База данных MySQL подключена через Prisma');
-  } catch (error) {
+} catch (error) {
     console.error('❌ Ошибка подключения к базе данных:', error);
     process.exit(1);
   }
@@ -28,8 +27,7 @@ export async function connectDatabase(): Promise<void> {
 export async function disconnectDatabase(): Promise<void> {
   try {
     await prisma.$disconnect();
-    console.log('✅ Отключение от базы данных MySQL');
-  } catch (error) {
+} catch (error) {
     console.error('❌ Ошибка отключения от базы данных:', error);
   }
 }

@@ -101,20 +101,8 @@ router.post('/save-card/postlink', paymentsLimiter, PaymentController.handleCard
  * @body { userId?: number }
  * @returns { success: boolean, data: { generatedIds, uniqueCount, allUnique } }
  */
-router.post('/test-invoice-generation', paymentsLimiter, validateRequest(paymentSchemas.testInvoiceGeneration), async (req, res) => {
-  try {
-    const { userId = 1 } = req.body;
-    
-    console.log('\n--- Тест генерации invoiceId ---');
-    
-    // Генерируем 5 ID для проверки уникальности
-    const ids = [];
-    for (let i = 1; i <= 5; i++) {
-      const invoiceId = await PaymentController.generateUniqueCardInvoiceId(userId, false);
-      ids.push(invoiceId);
-      console.log(`${i}. Сгенерирован: ${invoiceId}`);
-      
-      // Небольшая пауза между генерациями
+
+// Небольшая пауза между генерациями
 /**
  * @route POST /api/payments/pay-with-halyk-card
  * @desc Оплата существующего заказа по коду карты Halyk

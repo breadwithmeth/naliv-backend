@@ -861,9 +861,7 @@ export class EmployeeController {
       }
 
       const final_user_id = client_id;
-      console.log('Найден клиент:', user.login || user.name || `ID: ${client_id}`);
-
-      // Проверяем корректность данных товаров
+// Проверяем корректность данных товаров
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
         if (!item.item_id || typeof item.item_id !== 'number') {
@@ -905,15 +903,10 @@ export class EmployeeController {
         if (scheduledDate > maxFutureDate) {
           return next(createError(400, 'Дата запланированной доставки не может быть более чем на 30 дней вперед'));
         }
-        
-        console.log('Запланированная доставка на:', scheduledDate.toISOString());
-      }
+}
 
-      console.log('Начинаем создание заказа сотрудником:', employee_id, 'для пользователя:', final_user_id);
-      console.log('Получены товары:', JSON.stringify(items, null, 2));
-      console.log('Метод оплаты:', payment_method);
 
-      // Проверяем существование бизнеса
+// Проверяем существование бизнеса
       const business = await prisma.businesses.findUnique({
         where: { business_id }
       });
@@ -930,10 +923,7 @@ export class EmployeeController {
       if (!paymentType) {
         return next(createError(404, `Метод оплаты с ID ${payment_type_id} не найден в базе данных`));
       }
-
-      console.log('Найден метод оплаты:', paymentType.name, 'с ID:', payment_type_id);
-
-      // Рассчитываем стоимость доставки ДО транзакции
+// Рассчитываем стоимость доставки ДО транзакции
       let deliveryPrice = 0;
       if (delivery_type === 'DELIVERY' || delivery_type === 'SCHEDULED') {
         try {
@@ -949,10 +939,8 @@ export class EmployeeController {
             deliveryPrice = Math.ceil(rawPrice / 50) * 50;
             
             if (delivery_type === 'SCHEDULED') {
-              console.log('Рассчитана стоимость запланированной доставки:', deliveryPrice, '(исходная:', rawPrice, ')');
-            } else {
-              console.log('Рассчитана стоимость обычной доставки:', deliveryPrice, '(исходная:', rawPrice, ')');
-            }
+} else {
+}
           } else {
             const deliveryTypeText = delivery_type === 'SCHEDULED' ? 'Запланированная доставка' : 'Доставка';
             return next(createError(400, `${deliveryTypeText} недоступна: ${deliveryResult.message}`));
@@ -988,8 +976,7 @@ export class EmployeeController {
 
           address_id = newAddress.address_id;
           const addressType = delivery_type === 'SCHEDULED' ? 'запланированной доставки' : 'доставки';
-          console.log(`Создан новый адрес ${addressType} с ID:`, address_id);
-        }
+}
 
         // Создаем заказ
         const orderData: any = {
@@ -1010,10 +997,7 @@ export class EmployeeController {
         const order = await tx.orders.create({
           data: orderData
         });
-
-        console.log('Создан заказ с ID:', order.order_id);
-
-        // Создаем статус заказа (статус 0 - новый заказ, оплаченный)
+// Создаем статус заказа (статус 0 - новый заказ, оплаченный)
         await tx.order_status.create({
           data: {
             order_id: order.order_id,
@@ -1022,18 +1006,12 @@ export class EmployeeController {
             log_timestamp: new Date()
           }
         });
-
-        console.log('Создан статус заказа (status=0) для order_id:', order.order_id);
-
-        // Добавляем товары в заказ
+// Добавляем товары в заказ
         for (const item of items) {
           if (!item.item_id || typeof item.item_id !== 'number') {
             throw new Error(`Некорректный item_id: ${item.item_id}`);
           }
-          
-          console.log('Обрабатываем товар с ID:', item.item_id);
-          
-          // Получаем данные товара для определения цены
+// Получаем данные товара для определения цены
           const itemData = await tx.items.findUnique({
             where: { item_id: item.item_id }
           });
@@ -1069,8 +1047,7 @@ export class EmployeeController {
 
           if (Array.isArray(promotionDetailsRaw) && promotionDetailsRaw.length > 0) {
             appliedPromotionDetailId = (promotionDetailsRaw[0] as any).detail_id;
-            console.log('Применена акция detail_id:', appliedPromotionDetailId, 'для товара:', item.item_id);
-          }
+}
 
           const orderItem = await tx.orders_items.create({
             data: {
@@ -1081,10 +1058,7 @@ export class EmployeeController {
               marketing_promotion_detail_id: appliedPromotionDetailId
             }
           });
-
-          console.log('Добавлен товар:', orderItem);
-
-          // Добавляем опции товара
+// Добавляем опции товара
           if (item.options && item.options.length > 0) {
             for (const option of item.options) {
               const optionData = await tx.option_items.findUnique({
@@ -1133,12 +1107,9 @@ export class EmployeeController {
         const sum_before_delivery = Number(totalResult[0]?.items_sum || 0) + Number(optionsResult[0]?.options_sum || 0);
         const total_sum = sum_before_delivery + deliveryPrice;
         const totals = { sum_before_delivery, total_sum };
-        
-        console.log('Заказ создан сотрудником. Итоговая сумма:', totals.total_sum);
-        console.log('Сумма до доставки:', totals.sum_before_delivery, 'Стоимость доставки:', deliveryPrice);
-        console.log('Метод оплаты ID:', payment_type_id);
 
-        return {
+
+return {
           success: true,
           order_id: order.order_id,
           total_sum: totals.total_sum,

@@ -208,9 +208,7 @@
                 const { paymentObject, invoiceId, auth } = await createPaymentObject('USD');
                 
                 setupCallbacks(invoiceId, auth, 'USD');
-                console.log('Запуск с USD:', paymentObject);
-                
-                halyk.cardverification(paymentObject);
+halyk.cardverification(paymentObject);
 
             } catch (error) {
                 updateStatus(`❌ Ошибка USD: ${error.message}`, 'danger');
@@ -228,9 +226,7 @@
                 const { paymentObject, invoiceId, auth } = await createPaymentObject('KZT');
                 
                 setupCallbacks(invoiceId, auth, 'KZT');
-                console.log('Запуск с KZT:', paymentObject);
-                
-                halyk.cardverification(paymentObject);
+halyk.cardverification(paymentObject);
 
             } catch (error) {
                 updateStatus(`❌ Ошибка KZT: ${error.message}`, 'danger');
@@ -272,8 +268,7 @@
 
         function setupCallbacks(invoiceId, auth, currency) {
             window.halyk_success = function(data) {
-                console.log('✅ Успех:', data);
-                updateStatus(`🎉 Платёж успешен с валютой ${currency}!`, 'success');
+updateStatus(`🎉 Платёж успешен с валютой ${currency}!`, 'success');
                 addToHistory(invoiceId, currency, 'УСПЕХ');
                 
                 if (currency === 'USD') {
@@ -282,9 +277,7 @@
             };
 
             window.halyk_failure = function(error) {
-                console.log('❌ Ошибка:', error);
-                
-                const errorMsg = error.message || 'Неизвестная ошибка';
+const errorMsg = error.message || 'Неизвестная ошибка';
                 
                 if (errorMsg.includes('истекло') || errorMsg.includes('timeout')) {
                     updateStatus(`⏰ Timeout с валютой ${currency}!`, 'danger');
@@ -305,8 +298,7 @@
             };
 
             window.halyk_cancelled = function() {
-                console.log('❌ Отменено пользователем');
-                updateStatus('❌ Операция отменена пользователем', 'info');
+updateStatus('❌ Операция отменена пользователем', 'info');
                 addToHistory(invoiceId, currency, 'ОТМЕНЕНО');
             };
         }

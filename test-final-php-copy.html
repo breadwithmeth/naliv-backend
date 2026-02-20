@@ -269,9 +269,7 @@ halyk.cardverification(createPaymentObject(auth, invoiceId, amount));
                 const paymentObject = createPaymentObject(auth, invoiceId, 0);
 
                 setupCallbacks(invoiceId, 'PHP_COPY', 'USD');
-                console.log('🎯 Запуск точной копии PHP:', paymentObject);
-                
-                updateStatus('✅ Объект создан по PHP образцу. Запуск платежа...', 'success');
+updateStatus('✅ Объект создан по PHP образцу. Запуск платежа...', 'success');
                 halyk.cardverification(paymentObject);
 
             } catch (error) {
@@ -362,8 +360,7 @@ halyk.cardverification(createPaymentObject(auth, invoiceId, amount));
 
         function setupCallbacks(invoiceId, testName, currency) {
             window.halyk_success = function(data) {
-                console.log('✅ Успех:', data);
-                updateStatus(`🎉 УСПЕХ с ${currency}! Timeout исправлен!`, 'success');
+updateStatus(`🎉 УСПЕХ с ${currency}! Timeout исправлен!`, 'success');
                 addResult(testName, currency, 'SUCCESS');
                 
                 if (currency === 'USD') {
@@ -372,9 +369,7 @@ halyk.cardverification(createPaymentObject(auth, invoiceId, amount));
             };
 
             window.halyk_failure = function(error) {
-                console.log('❌ Ошибка:', error);
-                
-                const errorMsg = error.message || 'Неизвестная ошибка';
+const errorMsg = error.message || 'Неизвестная ошибка';
                 
                 if (errorMsg.includes('истекло') || errorMsg.includes('timeout')) {
                     updateStatus(`⏰ Timeout с ${currency}`, 'danger');
@@ -392,8 +387,7 @@ halyk.cardverification(createPaymentObject(auth, invoiceId, amount));
             };
 
             window.halyk_cancelled = function() {
-                console.log('❌ Отменено пользователем');
-                updateStatus('❌ Операция отменена пользователем', 'info');
+updateStatus('❌ Операция отменена пользователем', 'info');
                 addResult(testName, currency, 'CANCELLED');
             };
         }

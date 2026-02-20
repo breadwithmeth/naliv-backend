@@ -59,9 +59,7 @@ export const authenticateBusinessToken = async (
       uuid: business.uuid,
       enabled: business.enabled
     };
-
-    console.log(`Авторизован бизнес: ${business.name} (ID: ${business.business_id})`);
-    next();
+next();
   } catch (error) {
     next(error);
   }
@@ -117,8 +115,7 @@ export const optionalBusinessAuth = async (
         uuid: business.uuid,
         enabled: business.enabled
       };
-      console.log(`Опциональная авторизация бизнеса: ${business.name} (ID: ${business.business_id})`);
-    }
+}
 
     next();
   } catch (error) {

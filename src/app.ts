@@ -79,8 +79,7 @@ class App {
     
     // Логирование запросов
     this.app.use((req: Request, res: Response, next: NextFunction) => {
-      console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-      next();
+next();
     });
   }
 
@@ -117,11 +116,10 @@ class App {
       await connectDatabase();
       
       this.app.listen(this.port, () => {
-        console.log(`🚀 Server is running on port ${this.port}`);
-        console.log(`📊 Health check: http://localhost:${this.port}/health`);
-        console.log(`🔗 API base URL: http://localhost:${this.port}/api`);
-        console.log(`🗄️ Database: MySQL через Prisma`);
-      });
+
+
+
+});
     } catch (error) {
       console.error('❌ Ошибка запуска сервера:', error);
       process.exit(1);

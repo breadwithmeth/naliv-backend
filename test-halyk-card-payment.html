@@ -198,10 +198,7 @@
                         type: "ASAP"
                     }
                 };
-
-                console.log('Создание заказа с halyk_id:', requestData);
-
-                const response = await fetch('/api/orders/create-user-order', {
+const response = await fetch('/api/orders/create-user-order', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -251,10 +248,7 @@
                     order_id: parseInt(orderId),
                     halyk_card_id: halykCardId
                 };
-
-                console.log('Оплата по коду карты Halyk:', requestData);
-
-                const response = await fetch('/api/payments/pay-with-halyk-card', {
+const response = await fetch('/api/payments/pay-with-halyk-card', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',

@@ -31,14 +31,7 @@ function parseArgs(argv: string[]): ScriptOptions {
 
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
-
-  console.log('[rotateDiscountCardCodes] start', {
-    dryRun: opts.dryRun,
-    userIdMin: opts.userIdMin,
-    batchSize: opts.batchSize
-  });
-
-  // Собираем список пользователей приложения
+// Собираем список пользователей приложения
   const users = await prisma.user.findMany({
     where: {
       is_app_user: 1,
@@ -47,10 +40,7 @@ async function main(): Promise<void> {
     select: { user_id: true },
     orderBy: { user_id: 'asc' }
   });
-
-  console.log('[rotateDiscountCardCodes] users found', { count: users.length });
-
-  let created = 0;
+let created = 0;
 
   for (let i = 0; i < users.length; i += opts.batchSize) {
     const slice = users.slice(i, i + opts.batchSize);
@@ -61,13 +51,7 @@ async function main(): Promise<void> {
 
     if (opts.dryRun) {
       created += data.length;
-      console.log('[rotateDiscountCardCodes] dry-run batch', {
-        fromUserId: slice[0]?.user_id,
-        toUserId: slice[slice.length - 1]?.user_id,
-        batchSize: data.length,
-        createdTotal: created
-      });
-      continue;
+continue;
     }
 
     // Вставляем новую запись в bonus_cards для каждого пользователя.
@@ -75,15 +59,7 @@ async function main(): Promise<void> {
     const result = await prisma.bonus_cards.createMany({ data });
 
     created += result.count;
-    console.log('[rotateDiscountCardCodes] batch inserted', {
-      fromUserId: slice[0]?.user_id,
-      toUserId: slice[slice.length - 1]?.user_id,
-      inserted: result.count,
-      createdTotal: created
-    });
-  }
-
-  console.log('[rotateDiscountCardCodes] done', { created });
+}
 }
 
 main()

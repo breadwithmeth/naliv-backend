@@ -12,17 +12,12 @@ export class AddressController {
    */
   static async searchAddresses(req: Request, res: Response, next: NextFunction) {
     try {
-      console.log('🔍 Запрос поиска адресов:', req.query);
-      const { query } = req.query;
+const { query } = req.query;
 
       if (!query || typeof query !== 'string') {
-        console.log('❌ Ошибка: отсутствует параметр query');
-        return next(createError(400, 'Параметр query обязателен'));
+return next(createError(400, 'Параметр query обязателен'));
       }
-
-      console.log('🌍 Пытаемся использовать Yandex API для поиска:', query);
-
-      // Поиск через Nominatim
+// Поиск через Nominatim
       try {
         const endpoint = 'https://geocode.naliv.kz/search.php';
         const params = {
@@ -33,15 +28,9 @@ export class AddressController {
 
         };
         const url = `${endpoint}?${new URLSearchParams(params)}`;
-        console.log('📡 Отправляем запрос к Nominatim:', url);
+const response = await axios.get(url, { timeout: 2000, headers: { 'Accept-Language': 'ru' } });
 
-        const response = await axios.get(url, { timeout: 2000, headers: { 'Accept-Language': 'ru' } });
-        console.log('✅ Получен ответ от Nominatim:', response.status);
-        console.log('📊 Данные от Nominatim:', response.data);
-        
-        
-
-        res.json({
+res.json({
           success: true,
           data: response.data,
         });
@@ -488,10 +477,8 @@ export class AddressController {
         namedetails: '1'
       };
       const url = `${endpoint}?${new URLSearchParams(params)}`;
-      console.log('📡 Отправляем запрос к Nominatim reverse:', url);
-      const response = await axios.get(url, { timeout: 2000, headers: { 'Accept-Language': 'ru' } });
-      console.log('✅ Ответ Nominatim reverse:', response.status);
-      const data = response.data;
+const response = await axios.get(url, { timeout: 2000, headers: { 'Accept-Language': 'ru' } });
+const data = response.data;
       
       
       res.json({

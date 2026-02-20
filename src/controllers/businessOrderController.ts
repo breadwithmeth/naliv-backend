@@ -911,8 +911,7 @@ export class BusinessOrderController {
       }
 
       const tokenData = await response.json() as HalykTokenResponse;
-      console.log('Токен Halyk Bank получен успешно');
-      return tokenData.access_token;
+return tokenData.access_token;
     } catch (error) {
       console.error('Ошибка получения токена Halyk Bank:', error);
       throw error;
@@ -945,10 +944,7 @@ export class BusinessOrderController {
         // И также в body для надежности
         requestOptions.body = JSON.stringify({ amount });
       }
-
-      console.log(`Подтверждение операции Halyk Bank: ${chargeUrl}`, { amount });
-
-      const response = await fetch(chargeUrl, requestOptions);
+const response = await fetch(chargeUrl, requestOptions);
       
       if (!response.ok) {
         const errorText = await response.text();
@@ -961,9 +957,7 @@ export class BusinessOrderController {
       }
 
       const result = await response.json() as HalykChargeResponse;
-      console.log(`Операция ${operationId} подтверждена:`, result);
-      
-      return result;
+return result;
     } catch (error) {
       console.error(`Ошибка подтверждения операции ${operationId}:`, error);
       throw error;
@@ -1017,17 +1011,7 @@ export class BusinessOrderController {
       
       // Итоговая сумма к списанию (с учетом использованных бонусов)
       const finalAmount = itemsCost + deliveryPrice + serviceFee - bonusUsed;
-
-      console.log(`Пересчет стоимости заказа ${orderId} через OrderController:`, {
-        itemsCost,
-        deliveryPrice,
-        serviceFee,
-        bonusUsed,
-        finalAmount,
-        orderTotals
-      });
-
-      // Если есть payment_id, подтверждаем операцию в Halyk Bank
+// Если есть payment_id, подтверждаем операцию в Halyk Bank
       if (order.payment_id && finalAmount > 0 && order.order_uuid) {
         try {
           const confirmationResult = await BusinessOrderController.confirmHalykOperation(
@@ -1036,12 +1020,7 @@ export class BusinessOrderController {
           );
 
           // Логируем результат подтверждения
-          console.log(`Операция ${order.payment_id} подтверждена для заказа ${orderId}:`, {
-            finalAmount: Math.round(finalAmount),
-            result: confirmationResult
-          });
-
-          // Обновляем статус платежа в заказе (можно добавить поле confirmed_payment_amount)
+// Обновляем статус платежа в заказе (можно добавить поле confirmed_payment_amount)
           await prisma.orders.update({
             where: { order_id: orderId },
             data: {
@@ -1080,10 +1059,8 @@ export class BusinessOrderController {
           throw new Error(`Ошибка подтверждения платежа: ${paymentError?.message || 'Неизвестная ошибка'}`);
         }
       } else if (!order.payment_id) {
-        console.log(`Заказ ${orderId} не имеет payment_id, пропускаем подтверждение платежа`);
-      } else if (finalAmount <= 0) {
-        console.log(`Заказ ${orderId} имеет нулевую или отрицательную сумму к списанию: ${finalAmount}`);
-      }
+} else if (finalAmount <= 0) {
+}
 
     } catch (error) {
       console.error(`Ошибка пересчета и подтверждения платежа заказа ${orderId}:`, error);
@@ -1106,9 +1083,7 @@ export class BusinessOrderController {
           cost: orderTotals.sum_before_delivery
         }
       });
-
-      console.log(`Пересчитана стоимость заказа ${orderId} через OrderController: ${orderTotals.sum_before_delivery} (до доставки), ${orderTotals.total_sum} (итого)`);
-    } catch (error) {
+} catch (error) {
       console.error(`Ошибка пересчета стоимости заказа ${orderId}:`, error);
       throw error;
     }

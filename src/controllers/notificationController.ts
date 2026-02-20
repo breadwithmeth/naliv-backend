@@ -111,9 +111,7 @@ export class NotificationController {
           (pushResult.error_code === 'messaging/registration-token-not-registered' ||
            pushResult.error_code === 'messaging/invalid-registration-token' ||
            pushResult.error_code === 'messaging/sender-id-mismatch')) {
-        
-        console.log(`Очищаем недействительный FCM токен для пользователя ${userId}`);
-        await prisma.user.update({
+await prisma.user.update({
           where: { user_id: userId },
           data: { OneSignalId: null }
         });
