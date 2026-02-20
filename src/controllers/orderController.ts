@@ -397,8 +397,15 @@ export class OrderController {
                 });
 
                 if (optionData) {
+                  // Цена опции берётся только из БД, клиентское значение игнорируется
+                  const optionPrice = Number(optionData.price ?? 0);
+                  if (optionPrice < 0) {
+                    throw createError(400, 'Некорректная цена опции');
+                  }
+
                   // Рассчитываем количество опции (аналог PHP формулы)
-                  const optionAmount = validatedItem.amount / (option.parent_amount || 1);
+                  const parentAmount = option.parent_amount || 1;
+                  const optionAmount = validatedItem.amount / parentAmount;
 
                   await tx.order_items_options.create({
                     data: {
@@ -406,11 +413,11 @@ export class OrderController {
                       item_id: optionData.item_id,
                       option_item_relation_id: option.option_item_relation_id,
                       order_id: order.order_id,
-                      price: option.price || optionData.price || 0,
+                      price: optionPrice,
                       amount: optionAmount
                     }
                   });
-}
+                }
               }
             }
           }
@@ -644,14 +651,14 @@ export class OrderController {
         return next(createError(404, 'Бизнес не найден'));
       }
 
-      const bonusAmount = OrderController.parseNonNegativeInt(bonus_amount);
+      const parsedBonusAmount = OrderController.parseNonNegativeInt(bonus_amount);
+      if (parsedBonusAmount === null || parsedBonusAmount < 0) {
+        return next(createError(400, 'bonus_amount должен быть неотрицательным целым числом'));
+      }
+      const bonusAmount = Math.floor(parsedBonusAmount);
 
       // Валидация бонусов
       if (bonusAmount !== 0) {
-        if (bonusAmount === null || !Number.isInteger(bonusAmount) || bonusAmount < 0) {
-          return next(createError(400, 'bonus_amount должен быть неотрицательным целым числом'));
-        }
-
         // Проверяем фактический баланс пользователя
         const lastBonusRecord = await prisma.bonuses.findFirst({
           where: { user_id },
@@ -730,7 +737,7 @@ export class OrderController {
           order_uuid,
           address_id: address_id || 1, // Обязательное поле, ставим дефолтное значение если нет адреса
           delivery_price: deliveryPrice, // Добавляем стоимость доставки
-          bonus: bonusAmount,
+          bonus: 0,
           extra,
           delivery_type: delivery_type as orders_delivery_type,
           delivery_date: delivery_date ? new Date(delivery_date) : null,
@@ -814,13 +821,18 @@ export class OrderController {
               });
 
               if (optionData) {
+                const optionPrice = Number(optionData.price ?? 0);
+                if (optionPrice < 0) {
+                  throw createError(400, 'Некорректная цена опции');
+                }
+
                 await tx.order_items_options.create({
                   data: {
                     order_item_relation_id: orderItem.relation_id,
                     item_id: optionData.item_id,
                     option_item_relation_id: option.option_item_relation_id,
                     order_id: order.order_id,
-                    price: Number(optionData.price || 0), // Цена из таблицы option_items
+                    price: optionPrice, // Цена из таблицы option_items
                     amount: item.amount / (optionData.parent_item_amount || 1) // Количество опции
                   }
                 });
@@ -830,7 +842,34 @@ export class OrderController {
         }
 
         // Рассчитываем итоговую стоимость заказа
-        const totals = await OrderController.calculateOrderTotalInTransaction(tx, order.order_id);
+        let totals = await OrderController.calculateOrderTotalInTransaction(tx, order.order_id);
+
+        // Валидируем и применяем бонусы с учетом лимита 25% и текущего баланса
+        if (bonusAmount && bonusAmount > 0) {
+          const lastBonusRecord = await tx.bonuses.findFirst({
+            where: { user_id },
+            orderBy: { bonus_id: 'desc' }
+          });
+
+          const userBonusBalance = Number(lastBonusRecord?.amount || 0);
+          const maxBonusByRule = Math.floor(totals.sum_before_delivery * 0.25);
+
+          if (bonusAmount > userBonusBalance) {
+            throw createError(400, `Недостаточно бонусов: доступно ${userBonusBalance}, запрошено ${bonusAmount}`);
+          }
+
+          if (bonusAmount > maxBonusByRule) {
+            throw createError(400, `Максимально можно списать ${maxBonusByRule} бонусов (25% от суммы без доставки)`);
+          }
+
+          await tx.orders.update({
+            where: { order_id: order.order_id },
+            data: { bonus: bonusAmount }
+          });
+
+          // Пересчитываем тотал с учётом бонусов
+          totals = await OrderController.calculateOrderTotalInTransaction(tx, order.order_id);
+        }
 
 return {
           success: true,
@@ -2153,14 +2192,14 @@ if (!response.ok) {
         return next(createError(404, 'Бизнес не найден'));
       }
 
-      const bonusAmount = OrderController.parseNonNegativeInt(bonus_amount);
+      const parsedBonusAmount = OrderController.parseNonNegativeInt(bonus_amount);
+      if (parsedBonusAmount === null || parsedBonusAmount < 0) {
+        return next(createError(400, 'bonus_amount должен быть неотрицательным целым числом'));
+      }
+      const bonusAmount = Math.floor(parsedBonusAmount);
 
       // Валидация бонусов
       if (bonusAmount !== 0) {
-        if (bonusAmount === null || !Number.isInteger(bonusAmount) || bonusAmount < 0) {
-          return next(createError(400, 'bonus_amount должен быть неотрицательным целым числом'));
-        }
-
         // Проверяем фактический баланс пользователя
         const lastBonusRecord = await prisma.bonuses.findFirst({
           where: { user_id },
