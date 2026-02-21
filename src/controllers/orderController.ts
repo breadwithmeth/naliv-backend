@@ -852,7 +852,7 @@ export class OrderController {
           });
 
           const userBonusBalance = Number(lastBonusRecord?.amount || 0);
-          const maxBonusByRule = Math.floor(totals.sum_before_delivery * 0.25);
+          const maxBonusByRule = Math.floor(totals.sum_before_delivery * 0.30);
 
           if (bonusAmount > userBonusBalance) {
             throw createError(400, `Недостаточно бонусов: доступно ${userBonusBalance}, запрошено ${bonusAmount}`);
